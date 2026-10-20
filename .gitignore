@@ -1,0 +1,42 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Sensitive credentials & local user configs
+config.json
+
+# Processing Cache, Checkpoints, & Scratch
+cache/
+checkpoints/
+scratch/
+
+# Input & Output user data
+input/
+output/
+output_images/
+*.docx
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.log
+pipeline_execution.log
+
+# IDE & Editor settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini

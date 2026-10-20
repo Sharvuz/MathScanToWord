@@ -1,0 +1,31 @@
+{
+  "api_keys": [
+    "YOUR_GEMINI_API_KEY_1",
+    "YOUR_GEMINI_API_KEY_2",
+    "YOUR_GEMINI_API_KEY_3"
+  ],
+  "model": "gemini-3.5-flash-lite",
+  "slow_threshold_seconds": 30,
+  "concurrent_workers": 3,
+  "options": {
+    "create_word": true,
+    "normalize_gemini": true,
+    "toggle_tex": false,
+    "enhance_scans": true,
+    "auto_detect_columns": true,
+    "export_tex": false,
+    "vietnamese_in_math": true,
+    "decorate_word": true,
+    "detect_and_insert_images": true,
+    "format_multiple_choice": true,
+    "smart_layout": true,
+    "mcmix_compat": false,
+    "auto_open_word": true
+  },
+  "custom_openai": {
+    "enabled": false,
+    "base_url": "https://discovery-api.intern-ai.org.cn/v1",
+    "api_key": "",
+    "model": "internvl2.5-latest"
+  }
+}
