@@ -17,6 +17,9 @@ config.json
 cache/
 checkpoints/
 scratch/
+build/
+dist/
+*.spec
 
 # Input & Output user data
 input/

@@ -1,0 +1,64 @@
+name: Build Windows Portable Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Standalone Executable
+        run: |
+          pyinstaller --name "MathScanToWord" `
+            --windowed `
+            --noconfirm `
+            --clean `
+            --add-data "core;core" `
+            --add-data "gui;gui" `
+            --add-data "config.example.json;." `
+            --add-data "README.md;." `
+            app.py
+
+      - name: Prepare Portable Package
+        run: |
+          Copy-Item "config.example.json" "dist/MathScanToWord/config.json" -Force
+          Compress-Archive -Path "dist/MathScanToWord/*" -DestinationPath "MathScanToWord_Portable_Windows.zip"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MathScanToWord_Portable_Windows
+          path: MathScanToWord_Portable_Windows.zip
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: MathScanToWord_Portable_Windows.zip
+          title: MathScanToWord ${{ github.ref_name }} (Portable Standalone)
+          body: |
+            ## 🚀 Bản chạy trực tiếp không cần cài Python (Windows Portable)
+            - Tải file `MathScanToWord_Portable_Windows.zip` đính kèm bên dưới.
+            - Giải nén ra thư mục bất kỳ.
+            - Nhấp đúp vào file `MathScanToWord.exe` để mở ứng dụng ngay lập tức!
+            - Điền API Key Gemini vào tab Cấu hình là có thể sử dụng bình thường.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

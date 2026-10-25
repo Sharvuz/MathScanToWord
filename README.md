@@ -49,16 +49,29 @@ Phần mềm Desktop chuyên dụng giúp số hóa sách giáo khoa scan, đề
 - Python: **Phiên bản 3.10 - 3.12**.
 - Microsoft Office Word (nếu muốn xem và chỉnh sửa trực tiếp file `.docx`).
 
-### Các bước cài đặt:
-
-1. **Tải mã nguồn (Clone repository)**:
+### Cách 1: Khởi chạy 1-Click tự động trên máy mới (Khuyên dùng khi clone repo)
+1. **Clone mã nguồn về máy**:
    ```bash
-   git clone git@github.com:Sharvuz/MathScanToWord.git
+   git clone https://github.com/Sharvuz/MathScanToWord.git
    cd MathScanToWord
    ```
-   *(Hoặc tải file ZIP về giải nén và mở thư mục trong Terminal)*.
+2. **Khởi chạy cực đơn giản**:
+   - Nhấp đúp chuột vào file **`CHAY_TOOL_GIAO_DIEN.bat`**.
+   - File `.bat` sẽ tự động phát hiện máy mới, tự tạo môi trường ảo `.venv`, tự cài đặt toàn bộ thư viện cần thiết (`requirements.txt`) và mở giao diện phần mềm lên.
+   - Bạn chỉ cần nhập Google Gemini API Key vào tab **Cấu hình API & Keys** là dùng được ngay!
 
-2. **Tạo môi trường ảo và cài đặt thư viện**:
+---
+
+### Cách 2: Bản Portable độc lập (.EXE) không cần cài Python
+Nếu máy ở trung tâm/trường học không có Python và bạn không muốn cài đặt thêm môi trường:
+1. Bạn có thể tự đóng gói bản Portable trên máy chính bằng cách nhấp đúp file **`DONG_GOI_PORTABLE_EXE.bat`**.
+2. Thư mục độc lập sẽ được tạo tại `dist\MathScanToWord\`.
+3. Chỉ cần nén thư mục này thành file `.zip` hoặc copy sang USB, mang sang bất kỳ máy tính Windows nào cũng có thể nhấp đúp vào `MathScanToWord.exe` để chạy trực tiếp 100%!
+
+---
+
+### Cách 3: Cài đặt thủ công bằng dòng lệnh (Dành cho nhà phát triển)
+1. **Tạo môi trường ảo và cài đặt thư viện**:
    - Trên **Windows**:
      ```powershell
      python -m venv .venv
@@ -72,28 +85,17 @@ Phần mềm Desktop chuyên dụng giúp số hóa sách giáo khoa scan, đề
      pip install -r requirements.txt
      ```
 
-3. **Cấu hình API Key**:
+2. **Cấu hình API Key**:
    - Nhân bản file `config.example.json` thành `config.json`:
      ```bash
-     cp config.example.json config.json
+     copy config.example.json config.json
      ```
-   - Mở `config.json` và điền ít nhất 1 (khuyên dùng 3) Google Gemini API Key miễn phí lấy từ [Google AI Studio](https://aistudio.google.com/):
-     ```json
-     {
-       "api_keys": [
-         "AIzaSyYourFirstApiKeyHere...",
-         "AIzaSyYourSecondApiKeyHere..."
-       ]
-     }
-     ```
-   *(Lưu ý: Bạn cũng có thể mở giao diện phần mềm rồi nhập API Key trực tiếp vào tab Cấu hình mà không cần sửa file JSON).*
+   - Điền Google Gemini API Key vào `config.json` hoặc nhập trực tiếp trên giao diện ứng dụng.
 
-4. **Khởi chạy ứng dụng**:
-   - Cách 1: Nhấp đúp chuột vào file **`CHAY_TOOL_GIAO_DIEN.bat`** (trên Windows).
-   - Cách 2: Chạy lệnh:
-     ```bash
-     python app.py
-     ```
+3. **Chạy ứng dụng**:
+   ```bash
+   python app.py
+   ```
 
 ---
 
