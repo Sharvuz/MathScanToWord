@@ -407,6 +407,11 @@ class MainWindow(QMainWindow):
         self.last_pages_processed = []
         self.worker = None
 
+        # Batch Processing Queue
+        self.batch_queue = []
+        self.batch_index = 0
+        self.batch_completed = []
+
         # Side-by-Side Visual Diff Preview state
         self.processed_pages_data = {}  # {p_num: {"image_path": str, "markdown": str, "figures": list}}
         self.preview_page_list = []
@@ -1062,39 +1067,73 @@ class MainWindow(QMainWindow):
             urls = event.mimeData().urls()
             for u in urls:
                 fpath = u.toLocalFile()
-                if fpath.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg')):
+                if fpath.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.webp')):
                     event.acceptProposedAction()
                     return
         event.ignore()
 
     def dropEvent(self, event: QDropEvent):
         if event.mimeData().hasUrls():
+            files = []
             for u in event.mimeData().urls():
                 fpath = u.toLocalFile()
-                if fpath.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg')):
-                    self._set_selected_file(fpath)
-                    event.acceptProposedAction()
-                    break
+                if fpath.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.webp')):
+                    files.append(fpath)
+            if files:
+                self._set_selected_files(files)
+                event.acceptProposedAction()
+                return
+        event.ignore()
 
     def _set_selected_file(self, fpath: str):
-        self.txt_file_path.setText(fpath)
-        base_name = os.path.basename(fpath)
-        if fpath.lower().endswith(".pdf"):
-            try:
-                count = PDFProcessor.get_page_count(fpath)
-                self.radio_all_pages.setText(f"Toàn bộ file ({count} trang)")
-                self.lbl_drop_text.setText(f"✔ ĐÃ CHỌN: {base_name} ({count} trang) — Sẵn sàng chuyển đổi!")
-            except Exception:
-                self.lbl_drop_text.setText(f"✔ ĐÃ CHỌN: {base_name}")
+        self._set_selected_files([fpath])
+
+    def _set_selected_files(self, file_paths: List[str]):
+        if not file_paths:
+            return
+        self.batch_queue = list(file_paths)
+        self.batch_index = 0
+        self.batch_completed = []
+
+        if len(file_paths) == 1:
+            fpath = file_paths[0]
+            self.txt_file_path.setText(fpath)
+            base_name = os.path.basename(fpath)
+            if fpath.lower().endswith(".pdf"):
+                try:
+                    count = PDFProcessor.get_page_count(fpath)
+                    self.radio_all_pages.setText(f"Toàn bộ file ({count} trang)")
+                    self.lbl_drop_text.setText(f"✔ ĐÃ CHỌN: {base_name} ({count} trang) — Sẵn sàng chuyển đổi!")
+                except Exception:
+                    self.lbl_drop_text.setText(f"✔ ĐÃ CHỌN: {base_name}")
+                self.radio_custom_pages.setEnabled(True)
+            else:
+                self.radio_all_pages.setText("Toàn bộ file (1 ảnh)")
+                self.lbl_drop_text.setText(f"✔ ĐÃ CHỌN: {base_name} (1 ảnh)")
+                self.radio_custom_pages.setEnabled(False)
+                self.radio_all_pages.setChecked(True)
         else:
-            self.radio_all_pages.setText("Toàn bộ file (1 ảnh)")
-            self.lbl_drop_text.setText(f"✔ ĐÃ CHỌN: {base_name} (1 ảnh)")
+            first_name = os.path.basename(file_paths[0])
+            self.txt_file_path.setText(f"[Hàng đợi {len(file_paths)} files] {first_name}, ...")
+            self.lbl_drop_text.setText(
+                f"✔ ĐÃ CHỌN HÀNG ĐỢI {len(file_paths)} FILE (Sẽ tự động chuyển đổi lần lượt toàn bộ sang Word)!"
+            )
+            self.radio_all_pages.setChecked(True)
+            self.radio_all_pages.setText(f"Tất cả các trang ({len(file_paths)} files)")
+            self.radio_custom_pages.setEnabled(False)
+            self.txt_page_range.setEnabled(False)
+
         self.tabs.setCurrentIndex(0)
 
     def _browse_file(self):
-        f, _ = QFileDialog.getOpenFileName(self, "Chọn tài liệu", "", "PDF & Ảnh (*.pdf *.png *.jpg *.jpeg)")
-        if f:
-            self._set_selected_file(f)
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Chọn một hoặc nhiều tài liệu (PDF, Ảnh)",
+            "",
+            "PDF & Ảnh (*.pdf *.png *.jpg *.jpeg *.webp)"
+        )
+        if files:
+            self._set_selected_files(files)
 
     def _open_guide_dialog(self):
         msg = (
@@ -1169,44 +1208,19 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Thành công", "Đã lưu cấu hình thành công!")
 
     def _start_conversion(self):
-        file_path = self.txt_file_path.text().strip()
-        if not file_path or not os.path.exists(file_path):
-            QMessageBox.warning(self, "Lỗi", "Vui lòng chọn file PDF hoặc Ảnh trước!")
-            return
+        # Validate batch files or input path
+        if not self.batch_queue:
+            manual_path = self.txt_file_path.text().strip()
+            if manual_path and os.path.exists(manual_path):
+                self.batch_queue = [manual_path]
+            else:
+                QMessageBox.warning(self, "Lỗi", "Vui lòng chọn file PDF hoặc Ảnh trước!")
+                return
 
         keys = self.config.get("api_keys", [])
         if not keys:
             QMessageBox.warning(self, "Thiếu API Key", "Vui lòng thêm ít nhất 1 Gemini API Key trong tab Cấu hình!")
             return
-
-        # Determine pages
-        if file_path.lower().endswith(".pdf"):
-            total_pages = PDFProcessor.get_page_count(file_path)
-            if self.radio_all_pages.isChecked():
-                pages = list(range(1, total_pages + 1))
-            else:
-                pages = PDFProcessor.parse_page_ranges(self.txt_page_range.text(), total_pages)
-        else:
-            pages = [1]
-
-        self.last_file_path = file_path
-        self.last_pages_processed = pages
-        self.btn_send.setEnabled(False)
-        self.btn_open_word.setEnabled(False)
-        self.btn_open_tex.setEnabled(False)
-        self.btn_review_images.setEnabled(False)
-        self.txt_result.clear()
-        self.current_figures.clear()
-
-        # Reset visual diff preview
-        self.processed_pages_data.clear()
-        self.preview_page_list.clear()
-        self.current_preview_page_idx = 0
-        self._update_preview_display()
-
-        # Show Log Viewer
-        self.log_viewer.clear_logs()
-        self.log_viewer.show()
 
         # Update options in config
         self.config["options"] = {
@@ -1225,6 +1239,76 @@ class MainWindow(QMainWindow):
             "mcmix_compat": self.chk_mcmix.isChecked()
         }
 
+        self.batch_index = 0
+        self.batch_completed = []
+
+        # Show Log Viewer
+        self.log_viewer.clear_logs()
+        self.log_viewer.show()
+
+        self._process_batch_item(0)
+
+    def _process_batch_item(self, index: int):
+        if index >= len(self.batch_queue):
+            self._on_batch_all_finished()
+            return
+
+        file_path = self.batch_queue[index]
+        if not os.path.exists(file_path):
+            self.log_viewer.append_log(f"⚠ Bỏ qua file không tồn tại: {file_path}", "warning")
+            self.batch_index += 1
+            self._process_batch_item(self.batch_index)
+            return
+
+        # Determine pages
+        if len(self.batch_queue) > 1:
+            # Batch mode: always process all pages
+            if file_path.lower().endswith(".pdf"):
+                try:
+                    total_pages = PDFProcessor.get_page_count(file_path)
+                    pages = list(range(1, total_pages + 1))
+                except Exception as e:
+                    self.log_viewer.append_log(f"Lỗi đọc PDF {file_path}: {e}", "error")
+                    pages = [1]
+            else:
+                pages = [1]
+        else:
+            # Single file mode: check page options
+            if file_path.lower().endswith(".pdf"):
+                total_pages = PDFProcessor.get_page_count(file_path)
+                if self.radio_all_pages.isChecked():
+                    pages = list(range(1, total_pages + 1))
+                else:
+                    pages = PDFProcessor.parse_page_ranges(self.txt_page_range.text(), total_pages)
+            else:
+                pages = [1]
+
+        self.last_file_path = file_path
+        self.last_pages_processed = pages
+        self.btn_send.setEnabled(False)
+        total_batch = len(self.batch_queue)
+        base_name = os.path.basename(file_path)
+
+        if total_batch > 1:
+            self.btn_send.setText(f"⏳ ĐANG XỬ LÝ [{index + 1}/{total_batch}]: {base_name}")
+            self.log_viewer.append_log(f"\n========================================", "info")
+            self.log_viewer.append_log(f"📦 BẮT ĐẦU FILE [{index + 1}/{total_batch}]: {base_name}", "info")
+            self.log_viewer.append_log(f"========================================", "info")
+        else:
+            self.btn_send.setText("⏳ ĐANG XỬ LÝ CHUYỂN SANG WORD...")
+
+        self.btn_open_word.setEnabled(False)
+        self.btn_open_tex.setEnabled(False)
+        self.btn_review_images.setEnabled(False)
+        self.txt_result.clear()
+        self.current_figures.clear()
+
+        # Reset visual diff preview
+        self.processed_pages_data.clear()
+        self.preview_page_list.clear()
+        self.current_preview_page_idx = 0
+        self._update_preview_display()
+
         self.worker = OCRWorker(file_path, pages, self.config, self.cache_manager)
         self.worker.log_signal.connect(self.log_viewer.append_log)
         self.worker.progress_signal.connect(self._on_progress)
@@ -1234,13 +1318,20 @@ class MainWindow(QMainWindow):
         self.worker.start()
 
     def _stop_processing(self):
+        self.batch_queue = []
         if self.worker and self.worker.isRunning():
             self.worker.stop()
+        self.btn_send.setEnabled(True)
+        self.btn_send.setText("🚀 GỬI YÊU CẦU XỬ LÝ (CHUYỂN SANG WORD)")
+        self.progress_bar.setFormat("Đã dừng tiến trình!")
 
     def _on_progress(self, current: int, total: int, text: str):
         pct = int((current / total) * 100)
         self.progress_bar.setValue(pct)
-        self.progress_bar.setFormat(f"{text} ({pct}%)")
+        if len(self.batch_queue) > 1:
+            self.progress_bar.setFormat(f"[{self.batch_index + 1}/{len(self.batch_queue)}] {text} ({pct}%)")
+        else:
+            self.progress_bar.setFormat(f"{text} ({pct}%)")
 
     def _prev_preview_page(self):
         if self.preview_page_list and self.current_preview_page_idx > 0:
@@ -1330,9 +1421,7 @@ class MainWindow(QMainWindow):
         self._update_preview_display()
 
     def _on_finished(self, docx_path: str, full_text: str, all_figures: list, all_markdown: list, per_page_image_maps: dict):
-        self.btn_send.setEnabled(True)
-        self.progress_bar.setValue(100)
-        self.progress_bar.setFormat("Hoàn tất xử lý 100%!")
+        self.batch_completed.append((self.last_file_path, docx_path))
         self.last_docx_path = docx_path
         self.current_figures = all_figures
         self.last_markdown_pages = all_markdown
@@ -1354,23 +1443,72 @@ class MainWindow(QMainWindow):
         if docx_path and self.chk_toggle_tex.isChecked():
             WordBuilder.trigger_word_toggle_tex(docx_path)
 
-        # Notify user
-        tex_info = f"\n- File LaTeX (.tex): {os.path.basename(self.last_tex_path)}" if (self.last_tex_path and os.path.exists(self.last_tex_path)) else ""
-        msg = f"Đã chuyển đổi xong tài liệu!\n- File Word: {os.path.basename(docx_path) if docx_path else 'Không tạo'}{tex_info}\n- Số hình nhận diện: {len(self.current_figures)} hình."
-        if self.current_figures:
+        # Check if batch has next item
+        if self.batch_index + 1 < len(self.batch_queue):
+            self.batch_index += 1
+            self.log_viewer.append_log(
+                f"✅ Đã xong file {self.batch_index}/{len(self.batch_queue)}. Bắt đầu file tiếp theo...",
+                "success"
+            )
+            self._process_batch_item(self.batch_index)
+        else:
+            self._on_batch_all_finished()
+
+    def _on_batch_all_finished(self):
+        self.btn_send.setEnabled(True)
+        self.btn_send.setText("🚀 GỬI YÊU CẦU XỬ LÝ (CHUYỂN SANG WORD)")
+        self.progress_bar.setValue(100)
+        self.progress_bar.setFormat("Hoàn tất xử lý 100%!")
+
+        total_batch = len(self.batch_completed)
+        if total_batch > 1:
+            file_list_str = "\n".join([f"• {os.path.basename(f)} ➔ {os.path.basename(doc)}" for f, doc in self.batch_completed if doc])
+            msg = (
+                f"🎉 ĐÃ HOÀN TẤT CHUYỂN ĐỔI HÀNG ĐỢI {total_batch} FILES!\n\n"
+                f"Toàn bộ file Word đã được lưu tại thư mục 'output/':\n{file_list_str}\n\n"
+                f"Bạn có muốn mở thư mục kết quả ngay bây giờ không?"
+            )
             reply = QMessageBox.question(
                 self,
-                "Hoàn tất chuyển đổi",
-                f"{msg}\n\nBạn có muốn mở cửa sổ 'Xem lại & chỉnh khung hình ảnh' ngay không?",
+                "Hoàn tất xử lý hàng loạt",
+                msg,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.Yes:
-                self._show_review_dialog()
+                self._open_output_folder()
         else:
-            QMessageBox.information(self, "Hoàn tất chuyển đổi", msg)
+            # Single file notification
+            docx_path = self.last_docx_path
+            tex_info = f"\n- File LaTeX (.tex): {os.path.basename(self.last_tex_path)}" if (self.last_tex_path and os.path.exists(self.last_tex_path)) else ""
+            msg = f"Đã chuyển đổi xong tài liệu!\n- File Word: {os.path.basename(docx_path) if docx_path else 'Không tạo'}{tex_info}\n- Số hình nhận diện: {len(self.current_figures)} hình."
+            if self.current_figures:
+                reply = QMessageBox.question(
+                    self,
+                    "Hoàn tất chuyển đổi",
+                    f"{msg}\n\nBạn có muốn mở cửa sổ 'Xem lại & chỉnh khung hình ảnh' ngay không?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    self._show_review_dialog()
+            else:
+                QMessageBox.information(self, "Hoàn tất chuyển đổi", msg)
 
     def _on_error(self, err_msg: str):
+        self.log_viewer.append_log(f"Lỗi: {err_msg}", "error")
+        if self.batch_index + 1 < len(self.batch_queue):
+            reply = QMessageBox.question(
+                self,
+                "Lỗi xử lý file",
+                f"File '{os.path.basename(self.last_file_path)}' bị lỗi: {err_msg}\n\nBạn có muốn tiếp tục xử lý các file còn lại trong hàng đợi không?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.batch_index += 1
+                self._process_batch_item(self.batch_index)
+                return
+
         self.btn_send.setEnabled(True)
+        self.btn_send.setText("🚀 GỬI YÊU CẦU XỬ LÝ (CHUYỂN SANG WORD)")
         QMessageBox.critical(self, "Lỗi xử lý", f"Đã xảy ra lỗi: {err_msg}")
 
     def _open_word_file(self):

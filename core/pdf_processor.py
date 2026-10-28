@@ -30,11 +30,12 @@ class PDFProcessor:
         """
         if pdf_path.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
             img = Image.open(pdf_path).convert("RGB")
+            from core.image_preprocessor import ImagePreprocessor
+            # Tự động phát hiện và nắn góc chụp phối cảnh (Dewarp) nếu là ảnh chụp điện thoại
+            img = ImagePreprocessor.dewarp_pil_photo(img)
             if enhance:
-                from core.image_preprocessor import ImagePreprocessor
                 img, _ = ImagePreprocessor.enhance_page(img, deskew=True, whiten=True, auto_rotate=auto_rotate)
             elif auto_rotate:
-                from core.image_preprocessor import ImagePreprocessor
                 cv_img = ImagePreprocessor.pil_to_cv2(img)
                 cv_img, _ = ImagePreprocessor.detect_and_fix_orientation(cv_img)
                 img = ImagePreprocessor.cv2_to_pil(cv_img)

@@ -19,12 +19,25 @@ Phần mềm Desktop chuyên dụng giúp số hóa sách giáo khoa scan, đề
 - Tự động phân tích hình ảnh trang tài liệu bằng OpenCV để phát hiện vách ngăn giữa 2 cột (hoặc dải khoảng trắng phân cách).
 - Cắt trang thành Nửa Trái $\rightarrow$ Nửa Phải, bóc tách tuần tự đảm bảo **100% không bị nhảy câu hay đọc ngang dòng**.
 
-### 3. Cắt hình ảnh & Đồ thị thông minh (Smart Contour Auto-Snap & Blank Rejector)
+### 3. Cắt hình ảnh & AI vẽ lại hình học trực diện (AI Geometry Artist & Smart Snapping)
+- **Họa sĩ AI vẽ lại hình học (AI Geometry Artist)**:
+  - Tự động phát hiện và sử dụng AI sinh mã Matplotlib tái tạo hình vẽ trực diện, phẳng 2D hoặc phối cảnh 3D độ phân giải cao 300 DPI chuẩn sách giáo khoa.
+  - **Quy chuẩn Hình học không gian 3D**: Tuân thủ nghiêm ngặt quy ước Bộ GD&ĐT — TẤT CẢ các cạnh khuất bên trong hoặc mặt sau vẽ bằng nét đứt (`--`), cạnh nhìn thấy vẽ nét liền (`-`), chân đường cao có ký hiệu góc vuông 3D.
+  - **Quy chuẩn Đồ thị hàm số**: Trục $Ox, Oy$ có mũi tên nhọn, tiệm cận vẽ nét đứt, đánh dấu điểm cực trị và đường gióng tọa độ.
+  - Hỗ trợ nút bật/tắt linh hoạt giữa ảnh gốc scan và hình vẽ vector AI.
 - **Hút viền nét vẽ tự động (Contour Snapping)**: Tự động phân tích thành phần liên thông (Connected Components) quanh bounding box, tự động ôm khít hình vẽ, không cắt lẹm đỉnh hình học ($A, B, C$) và không dính chữ đề bài.
 - **Bộ lọc hình rỗng (Blank Rejector)**: Tự động nhận diện và loại bỏ các khung hình bị cắt nhầm mà bên trong chỉ toàn khoảng trắng hoặc hạt nhiễu, tránh chèn hình rác vào Word.
 - Hỗ trợ công cụ **Xem lại & Chỉnh khung cắt hình ảnh** trực quan bằng chuột trước khi chèn vào Word.
 
-### 4. Định dạng trắc nghiệm thông minh chuẩn Bộ GD&ĐT (Smart Fluid Layout)
+### 4. Tự động nắn thẳng ảnh chụp điện thoại (Mobile Photo Dewarping)
+- Tự động phát hiện góc chụp nghiêng, méo phối cảnh hình thang và viền đen mặt bàn bằng thuật toán **4-point perspective warp** của OpenCV.
+- Tự động nắn thẳng trang giấy về góc nhìn trực diện 90°, tẩy trắng nền giấy và làm nét chữ trước khi chuyển giao cho AI nhận diện.
+
+### 5. Hàng đợi xử lý hàng loạt nhiều file (Batch Processing Queue)
+- Cho phép chọn hoặc kéo thả **hàng loạt file PDF và file ảnh** (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`) cùng một lúc vào giao diện.
+- Hệ thống tự động xếp hàng và xử lý tuần tự từng file, xuất các file Word tương ứng vào thư mục `output/` mà không cần người dùng thao tác thủ công từng file.
+
+### 6. Định dạng trắc nghiệm thông minh chuẩn Bộ GD&ĐT (Smart Fluid Layout)
 - Tự động nhận diện câu hỏi trắc nghiệm 4 phương án $A, B, C, D$.
 - Tự động căn chỉnh bảng ẩn (borderless table) theo chuẩn quy cách:
   - **1 dòng 4 cột**: Khi các phương án ngắn.

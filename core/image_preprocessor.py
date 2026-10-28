@@ -344,4 +344,111 @@ class ImagePreprocessor:
 
         return left_img, right_img, split_x
 
+    @staticmethod
+    def order_points(pts: np.ndarray) -> np.ndarray:
+        """
+        Orders coordinates: [top-left, top-right, bottom-right, bottom-left].
+        """
+        rect = np.zeros((4, 2), dtype="float32")
+        # top-left has smallest sum, bottom-right has largest sum
+        s = pts.sum(axis=1)
+        rect[0] = pts[np.argmin(s)]
+        rect[2] = pts[np.argmax(s)]
+
+        # top-right has smallest diff (y - x), bottom-left has largest diff
+        diff = np.diff(pts, axis=1)
+        rect[1] = pts[np.argmin(diff)]
+        rect[3] = pts[np.argmax(diff)]
+        return rect
+
+    @classmethod
+    def four_point_transform(cls, image: np.ndarray, pts: np.ndarray) -> np.ndarray:
+        """
+        Performs 4-point bird's-eye perspective transform to unwarp tilted/skewed photo into a flat rectangle.
+        """
+        rect = cls.order_points(pts)
+        (tl, tr, br, bl) = rect
+
+        # Width of new image = max(dist(br, bl), dist(tr, tl))
+        width_a = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+        width_b = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+        max_width = max(int(width_a), int(width_b))
+
+        # Height of new image = max(dist(tr, br), dist(tl, bl))
+        height_a = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+        height_b = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+        max_height = max(int(height_a), int(height_b))
+
+        # Construct destination points
+        dst = np.array([
+            [0, 0],
+            [max_width - 1, 0],
+            [max_width - 1, max_height - 1],
+            [0, max_height - 1]
+        ], dtype="float32")
+
+        # Compute transform matrix and warp
+        M = cv2.getPerspectiveTransform(rect, dst)
+        warped = cv2.warpPerspective(image, M, (max_width, max_height), flags=cv2.INTER_LINEAR)
+        return warped
+
+    @classmethod
+    def detect_and_dewarp_page(cls, cv_img: np.ndarray) -> Tuple[bool, np.ndarray]:
+        """
+        Detects if an image is a photographed document on a desk/background with perspective tilt.
+        If a prominent quadrilateral document page is found, warps it flat into 90° rectangular view.
+        Returns (was_dewarped, result_img).
+        """
+        h, w = cv_img.shape[:2]
+        # Downscale for fast contour detection
+        target_h = 800
+        scale = target_h / float(h)
+        if scale < 1.0:
+            small = cv2.resize(cv_img, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        else:
+            small = cv_img.copy()
+            scale = 1.0
+
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if len(small.shape) == 3 else small.copy()
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edged = cv2.Canny(blurred, 60, 180)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+        closed = cv2.morphologyEx(edged, cv2.MORPH_CLOSE, kernel)
+
+        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+
+        total_area = small.shape[0] * small.shape[1]
+        for c in contours:
+            area = cv2.contourArea(c)
+            # Must occupy at least 35% of photo and at most 96%
+            if area < total_area * 0.35 or area > total_area * 0.98:
+                continue
+
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.025 * peri, True)
+
+            if len(approx) == 4:
+                # Valid quadrilateral detected!
+                pts = approx.reshape(4, 2) / scale
+                warped = cls.four_point_transform(cv_img, pts)
+                wh, ww = warped.shape[:2]
+                if ww >= 200 and wh >= 200:
+                    return True, warped
+
+        return False, cv_img
+
+    @classmethod
+    def dewarp_pil_photo(cls, pil_img: Image.Image) -> Image.Image:
+        """
+        Takes a PIL Image (e.g. from mobile camera), detects and flattens perspective if needed.
+        """
+        cv_img = cls.pil_to_cv2(pil_img)
+        was_dewarped, result_cv = cls.detect_and_dewarp_page(cv_img)
+        if was_dewarped:
+            # Also apply background whitening and border clean
+            result_cv = cls.whiten_background(result_cv)
+        return cls.cv2_to_pil(result_cv)
+
+
 
