@@ -399,6 +399,24 @@ class ReviewDialog(QDialog):
         btn_add_top.clicked.connect(self._add_manual_figure)
         header_h.addWidget(btn_add_top)
 
+        btn_redraw_all = QPushButton("✨ AI vẽ lại toàn bộ")
+        btn_redraw_all.setToolTip("Tự động dùng AI vẽ lại toàn bộ các hình chưa được vẽ lại thành hình vector nét 300 DPI")
+        btn_redraw_all.setStyleSheet("""
+            QPushButton {
+                background-color: #7c3aed;
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 10px 16px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #6d28d9;
+            }
+        """)
+        btn_redraw_all.clicked.connect(self._redraw_all_figures)
+        header_h.addWidget(btn_redraw_all)
+
         self.btn_maximize = QPushButton("🗖 Phóng to")
         self.btn_maximize.setToolTip("Phóng to toàn màn hình / Thu nhỏ cửa sổ")
         self.btn_maximize.setStyleSheet("""
@@ -488,6 +506,31 @@ class ReviewDialog(QDialog):
                 else:
                     self.btn_maximize.setText("🗖 Phóng to")
         super().changeEvent(event)
+
+    def _redraw_all_figures(self):
+        targets = [c for c in self.cards if not c.fig_data.get("redraw_path") and not c.fig_data.get("is_blank", False)]
+        if not targets:
+            QMessageBox.information(self, "Thông báo", "Tất cả các hình hợp lệ đều đã được AI vẽ lại!")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Xác nhận vẽ lại toàn bộ",
+            f"Tìm thấy {len(targets)} hình chưa được vẽ lại.\nBạn có muốn dùng AI vẽ lại toàn bộ {len(targets)} hình này không?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        success_count = 0
+        from PyQt6.QtWidgets import QApplication
+        for c in targets:
+            c._do_ai_redraw()
+            if c.fig_data.get("redraw_path"):
+                success_count += 1
+            QApplication.processEvents()
+
+        QMessageBox.information(self, "Hoàn tất", f"Đã hoàn thành vẽ lại {success_count}/{len(targets)} hình!")
 
     def _render_cards(self):
         # Clear existing widgets

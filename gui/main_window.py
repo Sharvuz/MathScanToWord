@@ -119,6 +119,31 @@ class OCRWorker(QThread):
                             f["selected"] = not is_b
                         elif "selected" not in f:
                             f["selected"] = not f.get("is_blank", False)
+
+                        # Tự động nạp hoặc bổ sung vẽ lại hình nếu bản cache trước đó chưa kịp vẽ
+                        if not f.get("is_blank", False) and opts.get("ai_geometry_redraw", True):
+                            cand_redraw = os.path.join(doc_dir, f"page_{p_num:04d}_{f.get('id', 'HINH_1')}_ai_redraw.png")
+                            if os.path.exists(cand_redraw):
+                                f["redraw_path"] = cand_redraw
+                                f["cropped_path"] = cand_redraw
+                            elif not f.get("redraw_path"):
+                                desc = f.get("description", "")
+                                from core.ai_figure_artist import AIGeometryArtist
+                                if AIGeometryArtist.is_likely_geometry(desc, context_text=p_text):
+                                    self.log_signal.emit(f"[Trang {p_num}] ✨ Đang bổ sung vẽ lại hình [{f.get('id')}] từ cache...", "info")
+                                    rd_res = AIGeometryArtist.redraw_figure(
+                                        image_path=f.get("original_path") or f.get("cropped_path"),
+                                        output_path=cand_redraw,
+                                        api_keys=self.api_keys,
+                                        model=self.model,
+                                        description=desc,
+                                        context_text=p_text,
+                                        timeout_seconds=30
+                                    )
+                                    if rd_res and os.path.exists(rd_res):
+                                        f["redraw_path"] = rd_res
+                                        f["cropped_path"] = rd_res
+                                        self.log_signal.emit(f"[Trang {p_num}] ✅ Đã bổ sung vẽ lại hình [{f.get('id')}] thành công!", "success")
                 else:
                     if not os.path.exists(page_img_path):
                         if opts.get("enhance_scans", True):
@@ -219,7 +244,7 @@ class OCRWorker(QThread):
                                         model=self.model,
                                         description=desc,
                                         context_text=p_text,
-                                        timeout_seconds=25
+                                        timeout_seconds=30
                                     )
                                     if rd_res and os.path.exists(rd_res):
                                         redraw_path = rd_res

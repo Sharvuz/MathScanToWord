@@ -50,7 +50,7 @@ class AIGeometryArtist:
         model: str = "gemini-2.5-flash",
         description: str = "",
         context_text: str = "",
-        timeout_seconds: int = 25
+        timeout_seconds: int = 35
     ) -> Optional[str]:
         """
         Gửi ảnh crop và ngữ cảnh cho Gemini để sinh mã Python (Matplotlib),
@@ -125,6 +125,9 @@ class AIGeometryArtist:
 
             try:
                 resp = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
+                if resp.status_code in (429, 503):
+                    time.sleep(2.0)
+                    resp = requests.post(url, headers=headers, json=payload, timeout=timeout_seconds)
                 if resp.status_code != 200:
                     continue
 
