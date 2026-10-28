@@ -1,105 +1,103 @@
 @echo off
-chcp 65001 >nul
-title CHUYỂN PDF/ẢNH SÁCH TOÁN SANG WORD MATHTYPE
+setlocal EnableExtensions
+title CHUYEN PDF/ANH SACH TOAN SANG WORD MATHTYPE
 cd /d "%~dp0"
 
 echo ===============================================================================
-echo   CHUYỂN PDF SCAN / ẢNH SÁCH TOÁN - KHTN SANG WORD MATHTYPE
+echo   CHUYEN PDF SCAN / ANH SACH TOAN - KHTN SANG WORD MATHTYPE
 echo ===============================================================================
 echo.
 
-:: 1. Kiểm tra môi trường ảo .venv
-if not exist ".venv\Scripts\python.exe" (
-    echo ===============================================================================
-    echo   PHÁT HIỆN LẦN ĐẦU KHỞI CHẠY TRÊN MÁY NÀY!
-    echo   Đang tự động thiết lập môi trường và cài đặt các thư viện cần thiết...
-    echo ===============================================================================
-    echo.
+REM 1. Kiem tra moi truong ao .venv da co chua
+if exist ".venv\Scripts\python.exe" goto CHECK_CONFIG
 
-    :: Tìm Python trên hệ thống (ưu tiên py -3.12, py -3, sau đó python)
-    set "PY_CMD="
-    py -3 --version >nul 2>nul
-    if %errorlevel% equ 0 (
-        set "PY_CMD=py -3"
-    ) else (
-        python --version >nul 2>nul
-        if %errorlevel% equ 0 (
-            set "PY_CMD=python"
-        ) else (
-            py --version >nul 2>nul
-            if %errorlevel% equ 0 (
-                set "PY_CMD=py"
-            )
-        )
-    )
+echo ===============================================================================
+echo   PHAT HIEN LAN DAU KHOI CHAY TREN MAY NAY!
+echo   Dang tu dong thiet lap moi truong va cai dat cac thu vien can thiet...
+echo ===============================================================================
+echo.
 
-    if not defined PY_CMD (
-        echo.
-        echo ===============================================================================
-        echo [X] LỖI: Máy tính này chưa cài đặt Python!
-        echo.
-        echo Vui lòng cài đặt Python (khuyên dùng bản 3.11 hoặc 3.12):
-        echo   1. Tải tại: https://www.python.org/downloads/
-        echo   2. QUAN TRỌNG: Ở bước đầu cài đặt, nhớ tích vào ô:
-        echo      [v] "Add python.exe to PATH"
-        echo.
-        echo Hoặc bạn có thể mở PowerShell và chạy lệnh tự động cài:
-        echo   winget install Python.Python.3.12
-        echo ===============================================================================
-        echo.
-        pause
-        exit /b 1
-    )
+REM 2. Tim Python tren he thong
+set "PY_CMD="
 
-    echo [*] Tìm thấy Python (%PY_CMD%). Đang tạo môi trường ảo .venv...
-    %PY_CMD% -m venv .venv
-    if errorlevel 1 (
-        echo.
-        echo [X] Không thể tạo môi trường ảo .venv.
-        echo Vui lòng đảm bảo bạn có quyền ghi vào thư mục này!
-        echo.
-        pause
-        exit /b 1
-    )
-
-    echo [*] Đang tải và cài đặt các thư viện (PyQt6, OpenCV, PyMuPDF, python-docx...)...
-    echo [*] (Quá trình này chỉ diễn ra 1 lần duy nhất, vui lòng chờ 1-2 phút)...
-    echo.
-    .venv\Scripts\python.exe -m pip install --upgrade pip
-    .venv\Scripts\python.exe -m pip install -r requirements.txt
-    if errorlevel 1 (
-        echo.
-        echo [X] Có lỗi xảy ra trong quá trình cài đặt thư viện!
-        echo Vui lòng kiểm tra kết nối mạng và thử chạy lại file .bat này.
-        echo.
-        pause
-        exit /b 1
-    )
-
-    if not exist "config.json" (
-        if exist "config.example.json" (
-            echo [*] Tự động tạo file config.json từ file mẫu...
-            copy config.example.json config.json >nul
-        )
-    )
-
-    echo.
-    echo ===============================================================================
-    echo   [V] THIẾT LẬP MÔI TRƯỜNG THÀNH CÔNG! ĐANG KHỞI CHẠY PHẦN MỀM...
-    echo ===============================================================================
-    echo.
-    timeout /t 2 >nul
+py -3 --version >nul 2>&1
+if not errorlevel 1 (
+    set "PY_CMD=py -3"
+    goto FOUND_PYTHON
 )
 
-:: 2. Đảm bảo file cấu hình tồn tại
+python --version >nul 2>&1
+if not errorlevel 1 (
+    set "PY_CMD=python"
+    goto FOUND_PYTHON
+)
+
+py --version >nul 2>&1
+if not errorlevel 1 (
+    set "PY_CMD=py"
+    goto FOUND_PYTHON
+)
+
+REM Khong tim thay Python
+echo.
+echo ===============================================================================
+echo [X] LOI: May tinh nay chua cai dat Python!
+echo.
+echo Vui long cai dat Python (khuyen dung ban 3.11 hoac 3.12):
+echo   1. Tai tai: https://www.python.org/downloads/
+echo   2. QUAN TRONG: O buoc dau cai dat, nho tich vao o:
+echo      [v] "Add python.exe to PATH"
+echo.
+echo Hoac ban co the mo PowerShell va chay lenh tu dong cai:
+echo   winget install Python.Python.3.12
+echo ===============================================================================
+echo.
+pause
+exit /b 1
+
+:FOUND_PYTHON
+echo [*] Tim thay Python (%PY_CMD%). Dang tao moi truong ao .venv...
+%PY_CMD% -m venv .venv
+if errorlevel 1 (
+    echo.
+    echo [X] Khong the tao moi truong ao .venv.
+    echo Vui long dam bao ban co quyen ghi vao thu muc nay!
+    echo.
+    pause
+    exit /b 1
+)
+
+echo [*] Dang cai dat cac thu vien (PyQt6, OpenCV, Matplotlib, python-docx...)...
+echo [*] (Qua trinh nay chi dien ra 1 lan duy nhat, vui long cho 1-2 phut)...
+echo.
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+if errorlevel 1 (
+    echo.
+    echo [X] Co loi xay ra trong qua trinh cai dat thu vien!
+    echo Vui long kiem tra ket noi mang va thu chay lai file .bat nay.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ===============================================================================
+echo   [V] THIET LAP MOI TRUONG THANH CONG! DANG KHOI CHAY PHAN MEM...
+echo ===============================================================================
+echo.
+timeout /t 2 >nul 2>&1
+
+:CHECK_CONFIG
+REM Dam bao file cau hinh ton tai
 if not exist "config.json" (
     if exist "config.example.json" (
-        copy config.example.json config.json >nul
+        copy config.example.json config.json >nul 2>&1
     )
 )
 
-:: 3. Khởi chạy ứng dụng giao diện
-echo [*] Đang khởi động giao diện người dùng...
+:LAUNCH
+echo [*] Dang khoi dong giao dien nguoi dung...
 if exist ".venv\Scripts\pythonw.exe" (
     start "" ".venv\Scripts\pythonw.exe" app.py
 ) else (
@@ -107,4 +105,3 @@ if exist ".venv\Scripts\pythonw.exe" (
 )
 
 exit /b 0
-
