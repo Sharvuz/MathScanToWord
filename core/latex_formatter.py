@@ -190,9 +190,9 @@ class LatexFormatter:
 
         # 2. Góc và độ
         formula = re.sub(r'(\d+)\s*(?:\^0|\^[oO]|°)(?!\w)', r'\1^\\circ', formula)
-        formula = re.sub(r'\\(angle|measuredangle)\s*\{?([A-Za-z]{1,4})\}?', r'\\widehat{\2}', formula)
-        formula = re.sub(r'\\hat\{([A-Za-z]{1,4})\}', r'\\widehat{\1}', formula)
-        formula = re.sub(r'\\widehat\s+([A-Za-z]{1,4})', r'\\widehat{\1}', formula)
+        formula = re.sub(r'\\(angle|measuredangle)\s*\{?([A-Za-z0-9_\']{1,8})\}?', r'\\widehat{\2}', formula)
+        formula = re.sub(r'\\hat\{([A-Za-z0-9_\']{1,8})\}', r'\\widehat{\1}', formula)
+        formula = re.sub(r'\\widehat\s+([A-Za-z0-9_\']{1,8})', r'\\widehat{\1}', formula)
 
         # 3. Hệ phương trình & hệ tuyển
         formula = re.sub(r'\\left\\\{\s*\\begin\{array\}\{[lcr]\}', r'\\begin{cases}', formula)

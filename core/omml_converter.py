@@ -9,6 +9,18 @@ class OMMLConverter:
     _xslt_found = False
     UNIT_NAMES = r'm|cm|dm|mm|km|km/h|km/giờ|km/phút|m/giây|m/phút|g|kg|g/cm|inch|giây|giờ|phút|lần|đồng|đồng/kg|mét|ha|s|h'
     UNIT_PATTERN = rf'(?:{UNIT_NAMES}|\(\s*(?:{UNIT_NAMES})\s*\))'
+    MATHML_NS = "http://www.w3.org/1998/Math/MathML"
+    OMML_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+
+    # Known accent characters that should be rendered as true accents (m:acc) instead of upper limits (m:limUpp)
+    ACCENT_CHARS = {
+        '^', '\u005E', '\u0302', '\u02C6', '\u02D8',  # hat / circumflex / widehat / breve
+        '\u2192', '\u2190', '\u2194', '\u20D7',       # vector / arrows
+        '~', '\u007E', '\u0303', '\u02DC',            # tilde / widetilde
+        '\u00AF', '\u0304', '\u2015',                 # bar / overline
+        '\u02D9', '\u0307', '\u00A8', '\u0308',       # dot / ddot
+        '\u2312', '\u2322',                           # arc / frown
+    }
 
     @classmethod
     def _init_xslt(cls):
@@ -39,6 +51,54 @@ class OMMLConverter:
                 cls._xslt_found = False
         else:
             cls._xslt_found = False
+
+    @classmethod
+    def _enhance_mathml_accents(cls, doc: etree._Element):
+        """
+        Ensures accents like widehat, vec, tilde, bar in MathML have accent="true"
+        so MML2OMML.XSL generates native Word math accents (<m:acc>) with proper
+        horizontal stretching instead of detached upper limits (<m:limUpp>).
+        """
+        for mover in doc.iter(f"{{{cls.MATHML_NS}}}mover"):
+            children = list(mover)
+            if len(children) >= 2:
+                second = children[1]
+                txt = (second.text or "").strip()
+                if txt in cls.ACCENT_CHARS or (second.tag.endswith('mo') and txt in ('^', '\u005E')):
+                    mover.set("accent", "true")
+
+    @classmethod
+    def _enhance_omml_accents(cls, root: etree._Element):
+        """
+        Post-processes OMML tree to convert any remaining <m:limUpp> with accent
+        characters (like '^' or '→') into native <m:acc> elements with proper
+        combining accents (U+0302 for hat, U+20D7 for arrow).
+        """
+        for lim_upp in list(root.iter(f"{{{cls.OMML_NS}}}limUpp")):
+            lim = lim_upp.find(f"{{{cls.OMML_NS}}}lim")
+            base_e = lim_upp.find(f"{{{cls.OMML_NS}}}e")
+            if lim is not None and base_e is not None:
+                lim_text = "".join(lim.itertext()).strip()
+                if lim_text in ('^', '\u005E', '\u0302', '\u02C6'):
+                    acc = etree.Element(f"{{{cls.OMML_NS}}}acc")
+                    acc_pr = etree.SubElement(acc, f"{{{cls.OMML_NS}}}accPr")
+                    etree.SubElement(acc_pr, f"{{{cls.OMML_NS}}}chr", {f"{{{cls.OMML_NS}}}val": "\u0302"})
+                    acc.append(base_e)
+                    parent = lim_upp.getparent()
+                    if parent is not None:
+                        idx = parent.index(lim_upp)
+                        parent.insert(idx, acc)
+                        parent.remove(lim_upp)
+                elif lim_text in ('\u2192', '->', '\u20D7'):
+                    acc = etree.Element(f"{{{cls.OMML_NS}}}acc")
+                    acc_pr = etree.SubElement(acc, f"{{{cls.OMML_NS}}}accPr")
+                    etree.SubElement(acc_pr, f"{{{cls.OMML_NS}}}chr", {f"{{{cls.OMML_NS}}}val": "\u20D7"})
+                    acc.append(base_e)
+                    parent = lim_upp.getparent()
+                    if parent is not None:
+                        idx = parent.index(lim_upp)
+                        parent.insert(idx, acc)
+                        parent.remove(lim_upp)
 
     @classmethod
     def latex_to_omml(cls, latex_str: str) -> Optional[etree._Element]:
@@ -82,7 +142,10 @@ class OMMLConverter:
         try:
             mathml = latex2mathml.converter.convert(latex_clean)
             mml_doc = etree.fromstring(mathml.encode('utf-8'))
+            cls._enhance_mathml_accents(mml_doc)
             omml_tree = cls._transform(mml_doc)
-            return omml_tree.getroot()
+            root = omml_tree.getroot()
+            cls._enhance_omml_accents(root)
+            return root
         except Exception:
             return None
