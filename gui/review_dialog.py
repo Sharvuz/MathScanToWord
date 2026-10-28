@@ -124,6 +124,45 @@ class FigureCard(QFrame):
         btn_del.clicked.connect(lambda: self.parent_dialog.remove_figure(self))
         header_layout.addWidget(btn_del)
 
+        # Button: Toggle between AI Redraw and Original Crop if both exist
+        self.btn_toggle_version = QPushButton("🔄 Đổi sang ảnh gốc" if fig_data.get("redraw_path") else "✨ Dùng hình AI")
+        self.btn_toggle_version.setToolTip("Chuyển đổi qua lại giữa ảnh crop gốc và hình vector do AI vẽ lại")
+        self.btn_toggle_version.setVisible(bool(fig_data.get("original_path") and fig_data.get("redraw_path")))
+        self.btn_toggle_version.setStyleSheet("""
+            QPushButton {
+                background-color: #f0fdf4;
+                border: 1px solid #bbf7d0;
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-weight: bold;
+                color: #15803d;
+            }
+            QPushButton:hover {
+                background-color: #dcfce7;
+            }
+        """)
+        self.btn_toggle_version.clicked.connect(self._toggle_version)
+        header_layout.addWidget(self.btn_toggle_version)
+
+        # Button: AI Redraw
+        self.btn_ai_redraw = QPushButton("✨ AI vẽ lại hình")
+        self.btn_ai_redraw.setToolTip("Dùng AI phân tích đề bài và tự động vẽ lại hình học phẳng 2D, thẳng góc trực diện, siêu nét 300 DPI")
+        self.btn_ai_redraw.setStyleSheet("""
+            QPushButton {
+                background-color: #f3e8ff;
+                border: 1px solid #d8b4fe;
+                padding: 4px 10px;
+                border-radius: 4px;
+                font-weight: bold;
+                color: #6b21a8;
+            }
+            QPushButton:hover {
+                background-color: #e9d5ff;
+            }
+        """)
+        self.btn_ai_redraw.clicked.connect(self._ai_redraw_figure)
+        header_layout.addWidget(self.btn_ai_redraw)
+
         layout.addLayout(header_layout)
 
         # Thumbnail Image
@@ -137,6 +176,89 @@ class FigureCard(QFrame):
         crop_path = self.fig_data["cropped_path"]
         if ImageCropper.rotate_cropped_file(crop_path, angle):
             self._update_thumbnail()
+
+    def _toggle_version(self):
+        orig = self.fig_data.get("original_path")
+        rd = self.fig_data.get("redraw_path")
+        if not orig or not rd:
+            return
+
+        cur = self.fig_data["cropped_path"]
+        if cur == rd:
+            self.fig_data["cropped_path"] = orig
+            self.btn_toggle_version.setText("✨ Đổi sang hình AI")
+        else:
+            self.fig_data["cropped_path"] = rd
+            self.btn_toggle_version.setText("🔄 Đổi sang ảnh gốc")
+        self._update_thumbnail()
+
+    def _ai_redraw_figure(self):
+        crop_path = self.fig_data.get("original_path") or self.fig_data["cropped_path"]
+        if not os.path.exists(crop_path):
+            QMessageBox.warning(self, "Lỗi", "Không tìm thấy file ảnh gốc để vẽ lại.")
+            return
+
+        api_keys = getattr(self.parent_dialog, "api_keys", []) or []
+        model = getattr(self.parent_dialog, "model", "gemini-2.5-flash")
+
+        if not api_keys:
+            QMessageBox.warning(
+                self,
+                "Chưa có API Key",
+                "Vui lòng cấu hình Gemini API Key trong tab Cấu hình để sử dụng tính năng AI vẽ lại hình học!"
+            )
+            return
+
+        self.btn_ai_redraw.setText("⏳ Đang vẽ...")
+        self.btn_ai_redraw.setEnabled(False)
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+        try:
+            from core.ai_figure_artist import AIGeometryArtist
+            out_redraw_path = f"{os.path.splitext(crop_path)[0]}_ai_redraw.png"
+            desc = self.fig_data.get("description", "")
+            ctx = self.fig_data.get("context_text", "")
+
+            new_path = AIGeometryArtist.redraw_figure(
+                image_path=crop_path,
+                output_path=out_redraw_path,
+                api_keys=api_keys,
+                model=model,
+                description=desc,
+                context_text=ctx,
+                timeout_seconds=30
+            )
+
+            if new_path and os.path.exists(new_path):
+                if "original_path" not in self.fig_data:
+                    self.fig_data["original_path"] = self.fig_data["cropped_path"]
+                self.fig_data["redraw_path"] = new_path
+                self.fig_data["cropped_path"] = new_path
+                self.fig_data["is_blank"] = False
+                self.fig_data["selected"] = True
+                self.checkbox.setChecked(True)
+                self._update_thumbnail()
+                self.btn_toggle_version.setVisible(True)
+                self.btn_toggle_version.setText("🔄 Đổi sang ảnh gốc")
+                self.btn_ai_redraw.setText("✨ Đã vẽ lại")
+                QMessageBox.information(
+                    self,
+                    "Thành công",
+                    "Đã dùng AI tái tạo lại hình học thẳng góc, chuẩn xác và siêu nét 300 DPI!"
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Không thể vẽ lại",
+                    "AI không thể vẽ lại hình này (hoặc hình không thuộc dạng hình học). Đã giữ nguyên ảnh gốc."
+                )
+                self.btn_ai_redraw.setText("✨ AI vẽ lại hình")
+        except Exception as e:
+            QMessageBox.critical(self, "Lỗi", f"Có lỗi xảy ra khi vẽ lại: {str(e)}")
+            self.btn_ai_redraw.setText("✨ AI vẽ lại hình")
+        finally:
+            self.btn_ai_redraw.setEnabled(True)
 
     def _update_thumbnail(self):
         crop_path = self.fig_data["cropped_path"]
@@ -226,9 +348,13 @@ class ReviewDialog(QDialog):
         doc_dir: Optional[str] = None,
         available_pages: Optional[List[int]] = None,
         file_path: Optional[str] = None,
-        cache_manager: Optional[Any] = None
+        cache_manager: Optional[Any] = None,
+        api_keys: Optional[List[str]] = None,
+        model: str = "gemini-2.5-flash"
     ):
         super().__init__(parent)
+        self.api_keys = api_keys or []
+        self.model = model
         self.setWindowTitle(f"Xem lại & Quản lý hình ảnh ({len(figures_list)} hình)")
         self.resize(960, 750)
         self.setWindowFlags(

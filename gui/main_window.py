@@ -200,12 +200,40 @@ class OCRWorker(QThread):
                             if is_blank:
                                 self.log_signal.emit(f"[Trang {p_num}] 🗑 Đã lọc hình rác/trắng [{fig_id}] ({reject_reason})", "warning")
 
+                            orig_path = crop_path
+                            redraw_path = None
+
+                            # Tự động AI vẽ lại hình học chuẩn trực diện nếu được bật
+                            if not is_blank and opts.get("ai_geometry_redraw", True):
+                                desc = fig.get("description", "")
+                                from core.ai_figure_artist import AIGeometryArtist
+                                if AIGeometryArtist.is_likely_geometry(desc, context_text=p_text):
+                                    self.log_signal.emit(f"[Trang {p_num}] ✨ Đang dùng AI vẽ lại hình học [{fig_id}] chuẩn trực diện...", "info")
+                                    target_redraw = os.path.join(doc_dir, f"page_{p_num:04d}_{fig_id}_ai_redraw.png")
+                                    rd_res = AIGeometryArtist.redraw_figure(
+                                        image_path=crop_path,
+                                        output_path=target_redraw,
+                                        api_keys=self.api_keys,
+                                        model=self.model,
+                                        description=desc,
+                                        context_text=p_text,
+                                        timeout_seconds=25
+                                    )
+                                    if rd_res and os.path.exists(rd_res):
+                                        redraw_path = rd_res
+                                        crop_path = rd_res
+                                        self.log_signal.emit(f"[Trang {p_num}] ✅ Đã vẽ lại hình học [{fig_id}] thành công (vector 300 DPI)!", "success")
+
                             p_figs.append({
                                 "id": fig_id,
                                 "page_num": p_num,
                                 "page_image_path": page_img_path,
                                 "box_2d": refined_box,
                                 "cropped_path": crop_path,
+                                "original_path": orig_path,
+                                "redraw_path": redraw_path,
+                                "description": fig.get("description", ""),
+                                "context_text": p_text[:400],
                                 "display_num": 0,
                                 "selected": not is_blank,
                                 "is_blank": is_blank,
@@ -315,11 +343,14 @@ class OCRWorker(QThread):
                 wb = WordBuilder(
                     font_name="Times New Roman",
                     font_size_pt=13.0,
-                    convert_to_omml=True,
+                    convert_to_omml=not opts.get("toggle_tex", False),
+                    toggle_tex_mode=opts.get("toggle_tex", False),
                     format_multiple_choice=opts.get("format_multiple_choice", True),
                     smart_layout=opts.get("smart_layout", True)
                 )
-                wb.add_header_title(f"TÀI LIỆU TOÁN HỌC: {base_name.upper()}")
+                first_page = all_markdown[0].strip() if all_markdown else ""
+                if not (first_page.startswith("|") or first_page.startswith("#")):
+                    wb.add_header_title(f"TÀI LIỆU TOÁN HỌC: {base_name.upper()}")
 
                 for idx, p_num in enumerate(self.pages_to_process):
                     p_text = all_markdown[idx]
@@ -617,6 +648,9 @@ class MainWindow(QMainWindow):
         col2.addWidget(self.chk_vietnamese_math)
         col2.addWidget(self.chk_decorate_word)
         col2.addWidget(self.chk_detect_images)
+        self.chk_ai_redraw = QCheckBox("✨ Tự động vẽ lại hình học trực diện & siêu nét (AI Geometry Artist)")
+        self.chk_ai_redraw.setChecked(opts.get("ai_geometry_redraw", True))
+        col2.addWidget(self.chk_ai_redraw)
         col2.addWidget(self.chk_smart_layout)
         col2.addWidget(self.chk_format_mc)
         col2.addWidget(self.chk_mcmix)
@@ -848,6 +882,22 @@ class MainWindow(QMainWindow):
         self.btn_copy.setStyleSheet("padding: 8px 14px; font-weight: bold;")
         self.btn_copy.clicked.connect(lambda: self.txt_result.selectAll() or self.txt_result.copy())
         bottom_h.addWidget(self.btn_copy)
+
+        self.btn_copy_tex = QPushButton("📋 Sao chép mã TeX (MathType Alt+\\)")
+        self.btn_copy_tex.setToolTip("Sao chép toàn bộ văn bản và công thức LaTeX để dán vào Word, sau đó bấm Alt + \\ để chuyển thành MathType tức thì.")
+        self.btn_copy_tex.setStyleSheet("""
+            QPushButton {
+                background-color: #4b5563;
+                color: white;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 8px 14px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #374151; }
+        """)
+        self.btn_copy_tex.clicked.connect(self._copy_tex_code)
+        bottom_h.addWidget(self.btn_copy_tex)
 
         bottom_h.addStretch()
 
@@ -1105,6 +1155,7 @@ class MainWindow(QMainWindow):
             "vietnamese_in_math": self.chk_vietnamese_math.isChecked(),
             "decorate_word": self.chk_decorate_word.isChecked(),
             "detect_and_insert_images": self.chk_detect_images.isChecked(),
+            "ai_geometry_redraw": self.chk_ai_redraw.isChecked(),
             "smart_layout": self.chk_smart_layout.isChecked(),
             "format_multiple_choice": self.chk_format_mc.isChecked(),
             "enhance_scans": self.chk_enhance_scans.isChecked(),
@@ -1163,6 +1214,7 @@ class MainWindow(QMainWindow):
             "vietnamese_in_math": self.chk_vietnamese_math.isChecked(),
             "decorate_word": self.chk_decorate_word.isChecked(),
             "detect_and_insert_images": self.chk_detect_images.isChecked(),
+            "ai_geometry_redraw": self.chk_ai_redraw.isChecked(),
             "smart_layout": self.chk_smart_layout.isChecked(),
             "format_multiple_choice": self.chk_format_mc.isChecked(),
             "enhance_scans": self.chk_enhance_scans.isChecked(),
@@ -1340,6 +1392,23 @@ class MainWindow(QMainWindow):
         os.makedirs(out_dir, exist_ok=True)
         os.startfile(out_dir)
 
+    def _copy_tex_code(self):
+        text = self.txt_result.toPlainText()
+        if not text:
+            QMessageBox.information(self, "Thông báo", "Chưa có nội dung văn bản nào để sao chép.")
+            return
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(text)
+        QMessageBox.information(
+            self,
+            "Đã sao chép mã TeX!",
+            "Đã sao chép toàn bộ văn bản và mã công thức LaTeX vào Clipboard!\n\n"
+            "👉 Cách dùng trong Word:\n"
+            "1. Dán (Ctrl + V) vào tài liệu Word.\n"
+            "2. Nhấn Ctrl + A để chọn toàn bộ văn bản.\n"
+            "3. Nhấn tổ hợp phím Alt + \\ (Toggle TeX của MathType) để biến toàn bộ mã thành công thức MathType chuẩn!"
+        )
+
     def _show_review_dialog(self):
         file_path = self.txt_file_path.text().strip() or self.last_file_path
         if not file_path or not os.path.exists(file_path):
@@ -1365,7 +1434,9 @@ class MainWindow(QMainWindow):
             doc_dir=doc_dir,
             available_pages=pages,
             file_path=file_path,
-            cache_manager=self.cache_manager
+            cache_manager=self.cache_manager,
+            api_keys=self.config.get("api_keys", []),
+            model=self.config.get("model", "gemini-2.5-flash")
         )
         if dlg.exec() == ReviewDialog.DialogCode.Accepted:
             # User accepted review/adjustments, re-generate Word with selected/updated figures
@@ -1390,14 +1461,18 @@ class MainWindow(QMainWindow):
             if fig.get("selected", True):
                 selected_maps[p_num][fig["id"]] = fig["cropped_path"]
 
+        is_tex_mode = self.chk_toggle_tex.isChecked() if hasattr(self, 'chk_toggle_tex') else False
         wb = WordBuilder(
             font_name="Times New Roman",
             font_size_pt=13.0,
-            convert_to_omml=True,
+            convert_to_omml=not is_tex_mode,
+            toggle_tex_mode=is_tex_mode,
             format_multiple_choice=self.chk_format_mc.isChecked() if hasattr(self, 'chk_format_mc') else True,
             smart_layout=self.chk_smart_layout.isChecked() if hasattr(self, 'chk_smart_layout') else True
         )
-        wb.add_header_title(f"TÀI LIỆU TOÁN HỌC: {base_name.upper()}")
+        first_page = self.last_markdown_pages[0].strip() if self.last_markdown_pages else ""
+        if not (first_page.startswith("|") or first_page.startswith("#")):
+            wb.add_header_title(f"TÀI LIỆU TOÁN HỌC: {base_name.upper()}")
 
         pages_to_build = self.last_pages_processed or list(range(1, len(self.last_markdown_pages) + 1))
         for idx, p_num in enumerate(pages_to_build):

@@ -24,18 +24,21 @@ QUY TẮC CỐT LÕI:
 - Dùng \\dfrac{...}{...} cho phân số, \\begin{cases} ... \\end{cases} cho hệ phương trình.
 - Góc dùng \\widehat{ABC}, vectơ dùng \\vec{a} hoặc \\overrightarrow{AB}.
 
-2. BẢNG BIỂU (BẢNG ĐÁP ÁN, HƯỚNG DẪN CHẤM, BẢNG BIẾN THIÊN):
+2. BẢNG BIỂU (BẢNG ĐÁP ÁN, HƯỚNG DẪN CHẤM, TIÊU ĐỀ ĐỀ THI):
 - Định dạng chuẩn bảng Markdown: | Cột 1 | Cột 2 | Cột 3 | kèm dòng gạch ngang |---|---|---|.
 - Xuống dòng bên trong ô của bảng: dùng thẻ <br>.
+- Với Bảng Hướng dẫn chấm / Thang điểm: BẮT BUỘC dùng cấu trúc 3 cột: `| Câu | Đáp án | Điểm |`. Nếu lời giải có hình vẽ minh họa, hãy đặt thẻ `[HINH_X]` ngay bên trong ô của cột `Đáp án`.
+- Với Tiêu đề đầu đề thi (có Logo hoặc Tên trường/Trung tâm bên trái và Tiêu đề bài thi bên phải): định dạng thành bảng 1 dòng 2 cột Markdown: `| TRUNG TÂM BDVH ÁNH SAO | BÀI THI GIỮA HỌC KÌ 1 – Môn Toán 9 <br> Thời gian: 120 phút |`.
 
 3. NHẬN DIỆN VÀ TỌA ĐỘ HÌNH VẼ / HÌNH HỌC / ĐỒ THỊ:
 - KHÔNG vẽ lại hình bằng ASCII hay TikZ.
 - Xác định tọa độ Bounding Box box_2d theo thang đo 0 đến 1000: [ymin, xmin, ymax, xmax].
+- ĐẶC BIỆT VỚI HÌNH HỌC: Trong trường "description" của mỗi hình, hãy mô tả chi tiết đầy đủ các yếu tố hình học (ví dụ: 'Tam giác ABC vuông tại A, đường cao AH, HD vuông góc AB tại D, HE vuông góc AC tại E') để hệ thống AI Artist tự động vẽ lại hình 2D trực diện siêu nét.
 - NGUYÊN TẮC CẮT HÌNH CHÍNH XÁC:
   + Tọa độ BẮT BUỘC CHỈ ÔM SÁT HÌNH VẼ / ĐỒ THỊ / HÌNH HỌC VÀ CÁC ĐIỂM ĐỈNH (A, B, C...).
   + TUYỆT ĐỐI KHÔNG CHỨA DÒNG TIÊU ĐỀ TRANG (như tên trường, số trang, tiêu đề 'Bộ đề ôn...', đường kẻ phân cách ở mép trên).
   + TUYỆT ĐỐI KHÔNG CẮT DÍNH DÒNG CHỮ ĐỀ BÀI Ở TRÊN HOẶC DƯỚI HÌNH (như 'Đoạn thẳng PQ', 'Cho tam giác...', 'chứa 5 viên bi...').
-  + Đặt đúng thẻ [HINH_1], [HINH_2],... vào ngay bên dưới câu hỏi/bài toán có hình đó.
+  + Đặt đúng thẻ [HINH_1], [HINH_2],... vào ngay bên dưới câu hỏi/bài toán có hình đó (hoặc trong ô bảng đáp án).
 
 4. TƯƠNG THÍCH TRỘN ĐỀ THI & ĐÁP ÁN TRẮC NGHIỆM:
 - Các phương án trắc nghiệm viết chuẩn dạng A., B., C., D.

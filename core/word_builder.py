@@ -24,13 +24,15 @@ class WordBuilder:
         font_name: str = "Times New Roman",
         font_size_pt: float = 13.0,
         convert_to_omml: bool = True,
+        toggle_tex_mode: bool = False,
         format_multiple_choice: bool = True,
         smart_layout: bool = True
     ):
         self.doc = docx.Document()
         self.font_name = font_name
         self.font_size_pt = font_size_pt
-        self.convert_to_omml = convert_to_omml
+        self.toggle_tex_mode = toggle_tex_mode
+        self.convert_to_omml = convert_to_omml and (not toggle_tex_mode)
         self.format_multiple_choice = format_multiple_choice
         self.smart_layout = smart_layout
         self._setup_page_margins()
@@ -220,20 +222,38 @@ class WordBuilder:
             while len(r) < col_count:
                 r.append("")
 
+        # Check if table is a 2-column Exam Header (Logo / School name on left, Exam title on right)
+        is_exam_header = False
+        if len(parsed_rows) == 1 and col_count == 2:
+            row_concat = " ".join(parsed_rows[0]).lower()
+            if any(k in row_concat for k in ["trung tâm", "bài thi", "đề thi", "môn:", "thời gian", "học kì"]):
+                is_exam_header = True
+
         table = self.doc.add_table(rows=len(parsed_rows), cols=col_count)
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
-        table.style = 'Table Grid'
 
-        # Set column widths appropriately
-        # If 3 columns (e.g. Câu | Đáp án | Điểm)
-        widths = [Inches(1.0), Inches(4.8), Inches(1.0)]
-        if col_count == 3:
-            col_widths = widths
+        if is_exam_header:
+            table.style = None
+            tblPr = table._tbl.tblPr
+            borders = parse_xml(f'''
+                <w:tblBorders {nsdecls("w")}>
+                    <w:top w:val="none"/><w:left w:val="none"/>
+                    <w:bottom w:val="none"/><w:right w:val="none"/>
+                    <w:insideH w:val="none"/><w:insideV w:val="none"/>
+                </w:tblBorders>
+            ''')
+            tblPr.append(borders)
+            col_widths = [Inches(3.3), Inches(3.5)]
         else:
-            col_widths = [Inches(6.8 / col_count)] * col_count
+            table.style = 'Table Grid'
+            # 3-column marking scheme table: Câu (0.9") | Đáp án (5.0") | Điểm (0.9")
+            if col_count == 3:
+                col_widths = [Inches(0.9), Inches(5.0), Inches(0.9)]
+            else:
+                col_widths = [Inches(6.8 / col_count)] * col_count
 
         for row_idx, row_data in enumerate(parsed_rows):
-            is_header = (row_idx == 0)
+            is_header = (row_idx == 0 and not is_exam_header)
             tr = table.rows[row_idx]._tr
             # Repeat header row across pages if multi-page
             if is_header:
@@ -257,7 +277,7 @@ class WordBuilder:
                 p.paragraph_format.space_before = Pt(2)
 
                 # Center align column 0 (Câu) and last column (Điểm), or header
-                if is_header or col_idx == 0 or (col_count == 3 and col_idx == 2):
+                if is_header or is_exam_header or col_idx == 0 or (col_count == 3 and col_idx == 2):
                     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 else:
                     p.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -275,20 +295,37 @@ class WordBuilder:
                         cur_p.paragraph_format.line_spacing = 1.15
                         cur_p.paragraph_format.space_after = Pt(2)
                         cur_p.paragraph_format.space_before = Pt(2)
-                        if is_header or col_idx == 0 or (col_count == 3 and col_idx == 2):
+                        if is_header or is_exam_header or col_idx == 0 or (col_count == 3 and col_idx == 2):
                             cur_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-                    # Check for [HINH_X] inside table
-                    fig_match = re.search(r'\[(HINH_\d+)\]', clean_part)
+                    # Check for [HINH_X] inside table cell
+                    fig_match = re.search(r'\[(HINH_\w+)\]', clean_part)
                     if fig_match:
+                        before_t = clean_part[:fig_match.start()].strip()
+                        if before_t:
+                            self._format_text_with_math_and_bold(cur_p, before_t, is_bold_all=(is_header or is_exam_header))
+
                         fig_id = fig_match.group(1)
-                        if fig_id in image_map and fig_id in selected_image_ids:
+                        if fig_id in image_map and (selected_image_ids is None or fig_id in selected_image_ids):
                             img_path = image_map[fig_id]
                             if os.path.exists(img_path):
-                                run = cur_p.add_run()
-                                run.add_picture(img_path, width=Inches(2.5))
+                                img_p = cell.add_paragraph() if before_t else cur_p
+                                img_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                img_p.paragraph_format.line_spacing = 1.0
+                                img_p.paragraph_format.space_before = Pt(2)
+                                img_p.paragraph_format.space_after = Pt(2)
+                                run_pic = img_p.add_run()
+                                run_pic.add_picture(img_path, width=Inches(3.0))
+
+                        after_t = clean_part[fig_match.end():].strip()
+                        if after_t:
+                            after_p = cell.add_paragraph()
+                            after_p.paragraph_format.line_spacing = 1.15
+                            after_p.paragraph_format.space_before = Pt(2)
+                            after_p.paragraph_format.space_after = Pt(2)
+                            self._format_text_with_math_and_bold(after_p, after_t, is_bold_all=(is_header or is_exam_header))
                     else:
-                        self._format_text_with_math_and_bold(cur_p, clean_part, is_bold_all=is_header)
+                        self._format_text_with_math_and_bold(cur_p, clean_part, is_bold_all=(is_header or is_exam_header))
 
         # Space after table
         sp_after = self.doc.add_paragraph()

@@ -757,8 +757,27 @@ def run_pipeline(
             if is_blank:
                 logger.warning(f"[Trang {page_num}] 🗑 Đã lọc hình rác/trắng [{fig_id}] ({reject_reason})")
             else:
+                # Tự động AI vẽ lại hình học chuẩn trực diện nếu phát hiện là bài hình
+                from core.ai_figure_artist import AIGeometryArtist
+                desc = fig.get("description", "")
+                if AIGeometryArtist.is_likely_geometry(desc, context_text=markdown_text):
+                    logger.info(f"[Trang {page_num}] ✨ Đang dùng AI vẽ lại hình học [{fig_id}] chuẩn trực diện...")
+                    target_redraw = os.path.join(output_images_dir, f"page_{page_num}_hinh_{f_idx}_ai_redraw.png")
+                    keys_list = [k for _, k in key_pool.keys]
+                    rd_path = AIGeometryArtist.redraw_figure(
+                        image_path=crop_path,
+                        output_path=target_redraw,
+                        api_keys=keys_list,
+                        model=getattr(gemini_client, 'model', 'gemini-2.5-flash'),
+                        description=desc,
+                        context_text=markdown_text[:400]
+                    )
+                    if rd_path and os.path.exists(rd_path):
+                        crop_path = rd_path
+                        logger.info(f"[Trang {page_num}] ✅ Đã vẽ lại hình học [{fig_id}] thành công (vector 300 DPI)!")
+
                 page_images_map[fig_id] = crop_path
-                logger.info(f"[Trang {page_num}] Đã cắt hình minh họa: {os.path.basename(crop_path)}")
+                logger.info(f"[Trang {page_num}] Đã chèn hình minh họa: {os.path.basename(crop_path)}")
 
         page_record = {
             "page": page_num,
