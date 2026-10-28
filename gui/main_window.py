@@ -342,13 +342,15 @@ class OCRWorker(QThread):
             if opts.get("create_word", True):
                 docx_path = os.path.join(out_dir, f"{base_name}_Converted.docx")
 
+                is_paper_saver = opts.get("compact_paper_saver", True)
                 wb = WordBuilder(
-                    font_name="Times New Roman",
-                    font_size_pt=13.0,
+                    font_name="Palatino Linotype" if is_paper_saver else "Times New Roman",
+                    font_size_pt=11.0 if is_paper_saver else 13.0,
                     convert_to_omml=not opts.get("toggle_tex", False),
                     toggle_tex_mode=opts.get("toggle_tex", False),
                     format_multiple_choice=opts.get("format_multiple_choice", True),
-                    smart_layout=opts.get("smart_layout", True)
+                    smart_layout=opts.get("smart_layout", True),
+                    compact_paper_saver=is_paper_saver
                 )
                 first_page = all_markdown[0].strip() if all_markdown else ""
                 if not (first_page.startswith("|") or first_page.startswith("#")):
@@ -357,7 +359,8 @@ class OCRWorker(QThread):
                 for idx, p_num in enumerate(self.pages_to_process):
                     p_text = all_markdown[idx]
                     wb.add_page_content(p_num, p_text, per_page_image_maps.get(p_num, {}))
-                    if idx < len(self.pages_to_process) - 1:
+                    # Chế độ Tiết kiệm giấy: Không ngắt trang cứng để các bài thi/câu hỏi chảy liên tục
+                    if not is_paper_saver and idx < len(self.pages_to_process) - 1:
                         wb.doc.add_page_break()
 
                 try:
@@ -642,21 +645,38 @@ class MainWindow(QMainWindow):
         col2 = QVBoxLayout()
         self.chk_vietnamese_math = QCheckBox("Chữ Việt trong công thức (\\text{...})")
         self.chk_vietnamese_math.setChecked(opts.get("vietnamese_in_math", True))
-        self.chk_decorate_word = QCheckBox("Trang trí Word chuẩn Bộ GD (Times New Roman 13pt, 2cm)")
-        self.chk_decorate_word.setChecked(opts.get("decorate_word", True))
+        saver_opt = opts.get("compact_paper_saver", True)
+        self.chk_compact_paper_saver = QCheckBox("🌿 Fit trang tối ưu tiết kiệm giấy (Lề 0.7cm, 11pt, dòng liên tục như file mẫu)")
+        self.chk_compact_paper_saver.setChecked(saver_opt)
+        self.chk_compact_paper_saver.setToolTip(
+            "Tối ưu hóa bố cục để tiết kiệm giấy in tối đa: Lề siêu hẹp (0.7cm), cỡ chữ 11pt, "
+            "không chèn ngắt trang trắng giữa các trang scan, gom ý a,b lên cùng hàng để vừa vặn trong ít trang nhất giống file Word mẫu."
+        )
+        self.chk_decorate_word = QCheckBox("Trang trí Word chuẩn Bộ GD (Times New Roman 13pt, Lề 2cm)")
+        self.chk_decorate_word.setChecked(opts.get("decorate_word", False) and (not saver_opt))
+
+        self.chk_compact_paper_saver.toggled.connect(
+            lambda v: self.chk_decorate_word.setChecked(False) if v else None
+        )
+        self.chk_decorate_word.toggled.connect(
+            lambda v: self.chk_compact_paper_saver.setChecked(False) if v else None
+        )
+
         self.chk_detect_images = QCheckBox("Tự động nhận diện và cắt hình minh họa vào Word")
         self.chk_detect_images.setChecked(opts.get("detect_and_insert_images", True))
+        self.chk_ai_redraw = QCheckBox("✨ Tự động vẽ lại hình học trực diện & siêu nét (AI Geometry Artist)")
+        self.chk_ai_redraw.setChecked(opts.get("ai_geometry_redraw", True))
         self.chk_smart_layout = QCheckBox("Bố cục thông minh: Đặt hình bên phải câu hỏi (Smart Fluid Layout)")
         self.chk_smart_layout.setChecked(opts.get("smart_layout", True))
         self.chk_format_mc = QCheckBox("Dàn trang trắc nghiệm 4 cột / 2 cột tự động (Chuẩn BGD)")
         self.chk_format_mc.setChecked(opts.get("format_multiple_choice", True))
         self.chk_mcmix = QCheckBox("Trộn đề McMix, SmartTest (Tag [NB], gạch chân đáp án)")
         self.chk_mcmix.setChecked(opts.get("mcmix_compat", False))
+
         col2.addWidget(self.chk_vietnamese_math)
+        col2.addWidget(self.chk_compact_paper_saver)
         col2.addWidget(self.chk_decorate_word)
         col2.addWidget(self.chk_detect_images)
-        self.chk_ai_redraw = QCheckBox("✨ Tự động vẽ lại hình học trực diện & siêu nét (AI Geometry Artist)")
-        self.chk_ai_redraw.setChecked(opts.get("ai_geometry_redraw", True))
         col2.addWidget(self.chk_ai_redraw)
         col2.addWidget(self.chk_smart_layout)
         col2.addWidget(self.chk_format_mc)
@@ -1193,6 +1213,7 @@ class MainWindow(QMainWindow):
             "create_word": self.chk_create_word.isChecked(),
             "normalize_gemini": self.chk_normalize_gemini.isChecked(),
             "toggle_tex": self.chk_toggle_tex.isChecked(),
+            "compact_paper_saver": self.chk_compact_paper_saver.isChecked(),
             "vietnamese_in_math": self.chk_vietnamese_math.isChecked(),
             "decorate_word": self.chk_decorate_word.isChecked(),
             "detect_and_insert_images": self.chk_detect_images.isChecked(),
@@ -1227,6 +1248,7 @@ class MainWindow(QMainWindow):
             "create_word": self.chk_create_word.isChecked(),
             "normalize_gemini": self.chk_normalize_gemini.isChecked(),
             "toggle_tex": self.chk_toggle_tex.isChecked(),
+            "compact_paper_saver": self.chk_compact_paper_saver.isChecked(),
             "vietnamese_in_math": self.chk_vietnamese_math.isChecked(),
             "decorate_word": self.chk_decorate_word.isChecked(),
             "detect_and_insert_images": self.chk_detect_images.isChecked(),
@@ -1602,13 +1624,15 @@ class MainWindow(QMainWindow):
                 selected_maps[p_num][fig["id"]] = fig["cropped_path"]
 
         is_tex_mode = self.chk_toggle_tex.isChecked() if hasattr(self, 'chk_toggle_tex') else False
+        is_paper_saver = self.chk_compact_paper_saver.isChecked() if hasattr(self, 'chk_compact_paper_saver') else True
         wb = WordBuilder(
-            font_name="Times New Roman",
-            font_size_pt=13.0,
+            font_name="Palatino Linotype" if is_paper_saver else "Times New Roman",
+            font_size_pt=11.0 if is_paper_saver else 13.0,
             convert_to_omml=not is_tex_mode,
             toggle_tex_mode=is_tex_mode,
             format_multiple_choice=self.chk_format_mc.isChecked() if hasattr(self, 'chk_format_mc') else True,
-            smart_layout=self.chk_smart_layout.isChecked() if hasattr(self, 'chk_smart_layout') else True
+            smart_layout=self.chk_smart_layout.isChecked() if hasattr(self, 'chk_smart_layout') else True,
+            compact_paper_saver=is_paper_saver
         )
         first_page = self.last_markdown_pages[0].strip() if self.last_markdown_pages else ""
         if not (first_page.startswith("|") or first_page.startswith("#")):
@@ -1619,7 +1643,7 @@ class MainWindow(QMainWindow):
             p_text = self.last_markdown_pages[idx] if idx < len(self.last_markdown_pages) else ""
             p_imgs = selected_maps.get(p_num, {})
             wb.add_page_content(p_num, p_text, p_imgs)
-            if idx < len(pages_to_build) - 1:
+            if not is_paper_saver and idx < len(pages_to_build) - 1:
                 wb.doc.add_page_break()
 
         try:

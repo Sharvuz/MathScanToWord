@@ -46,7 +46,14 @@ Phần mềm Desktop chuyên dụng giúp số hóa sách giáo khoa scan, đề
 - Đặt câu hỏi và hình minh họa nằm song song (Câu hỏi bên trái - Hình vẽ bên phải) tự nhiên như đề thi chính thức.
 - Tự động phát hiện và gạch chân đáp án đúng (tương thích đề thi McMix / SmartTest).
 
-### 5. Quản lý đa luồng & Xoay tua API Key (Multi-Key Affinity Pool)
+### 7. Tùy chọn Fit file tối ưu tiết kiệm giấy in (Compact Paper-Saving Mode)
+- **Căn lề siêu hẹp (Narrow Margins)**: Lề trên 0.8cm, lề dưới 0.6cm, lề trái 0.7cm, lề phải 0.8cm (mở rộng chiều rộng in từ 17cm lên 19.5cm, tăng thêm 15% diện tích trình bày).
+- **Cỡ chữ 11pt & Giãn dòng tinh gọn**: Sử dụng font chữ thanh thoát (Palatino Linotype / Times New Roman 11pt), giãn dòng 1.15 và khoảng cách đoạn 1pt giúp bố cục vừa vặn như đề thi thật.
+- **Dòng chảy liên tục (Continuous Flow)**: Loại bỏ các ngắt trang cứng (`Page Break`) nhân tạo giữa các trang scan, tránh tạo ra các khoảng trắng khổng lồ cuối trang, dồn nội dung bài thi khít khao nhất.
+- **Gom ý tự luận lên cùng hàng (Sub-question Compaction)**: Tự động gom các ý `a), b)` và `c), d)` lên cùng 1 hàng bằng bảng ẩn 2 cột, tiết kiệm 50% chiều cao trang giấy.
+- **Bảng điểm & Tiêu đề thích ứng**: Bảng tiêu đề đề thi và bảng đáp án (`Câu | Đáp án | Điểm`) tự động mở rộng lấp đầy khổ lề 19.5cm, không bị tràn dòng.
+
+### 8. Quản lý đa luồng & Xoay tua API Key (Multi-Key Affinity Pool)
 - Hỗ trợ cấu hình cùng lúc nhiều Google Gemini API Key.
 - Phân luồng xử lý song song nhiều trang (Concurrent Workers) với cơ chế gán key theo luồng (Thread-Key Affinity), tránh lỗi xung đột giới hạn tốc độ (Rate Limit 429).
 - Tự động chuyển key khi mạng chậm hoặc chạm hạn mức.

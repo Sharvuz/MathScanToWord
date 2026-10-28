@@ -26,11 +26,22 @@ class WordBuilder:
         convert_to_omml: bool = True,
         toggle_tex_mode: bool = False,
         format_multiple_choice: bool = True,
-        smart_layout: bool = True
+        smart_layout: bool = True,
+        compact_paper_saver: bool = False
     ):
         self.doc = docx.Document()
+        self.compact_paper_saver = compact_paper_saver
         self.font_name = font_name
-        self.font_size_pt = font_size_pt
+        # If compact paper saver is True and font_size_pt is default 13.0, switch to 11.0pt
+        if self.compact_paper_saver and font_size_pt == 13.0:
+            self.font_size_pt = 11.0
+        else:
+            self.font_size_pt = font_size_pt
+
+        # Printable width: A4 width is 8.27".
+        # In Paper Saver mode: left 0.28" (0.7cm), right 0.31" (0.8cm) -> printable width = 7.68" (~19.5cm)
+        # In Standard mode: left 0.79" (2.0cm), right 0.79" (2.0cm) -> printable width = 6.69" (~17.0cm)
+        self.printable_width = Inches(7.68) if self.compact_paper_saver else Inches(6.69)
         self.toggle_tex_mode = toggle_tex_mode
         self.convert_to_omml = convert_to_omml and (not toggle_tex_mode)
         self.format_multiple_choice = format_multiple_choice
@@ -39,12 +50,19 @@ class WordBuilder:
         self._setup_default_styles()
 
     def _setup_page_margins(self):
-        # 2cm margins (~0.79 inches)
         for section in self.doc.sections:
-            section.top_margin = Inches(0.79)
-            section.bottom_margin = Inches(0.79)
-            section.left_margin = Inches(0.79)
-            section.right_margin = Inches(0.79)
+            if self.compact_paper_saver:
+                # Lề siêu hẹp tối ưu tiết kiệm giấy (Top 0.8cm, Bottom 0.6cm, Left 0.7cm, Right 0.8cm)
+                section.top_margin = Inches(0.32)
+                section.bottom_margin = Inches(0.24)
+                section.left_margin = Inches(0.28)
+                section.right_margin = Inches(0.31)
+            else:
+                # 2cm standard Ministry of Education margins
+                section.top_margin = Inches(0.79)
+                section.bottom_margin = Inches(0.79)
+                section.left_margin = Inches(0.79)
+                section.right_margin = Inches(0.79)
 
     def _setup_default_styles(self):
         style = self.doc.styles['Normal']
@@ -53,17 +71,18 @@ class WordBuilder:
         font.size = Pt(self.font_size_pt)
         font.color.rgb = RGBColor(0, 0, 0)
         style.paragraph_format.line_spacing = 1.15
-        style.paragraph_format.space_after = Pt(3)
+        style.paragraph_format.space_before = Pt(0)
+        style.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 3)
 
     def add_header_title(self, title: str):
         p = self.doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after = Pt(6)
+        p.paragraph_format.space_after = Pt(3 if self.compact_paper_saver else 6)
         run = p.add_run(title)
         run.bold = True
         run.font.name = self.font_name
-        run.font.size = Pt(self.font_size_pt + 3)
+        run.font.size = Pt(self.font_size_pt + (1.5 if self.compact_paper_saver else 3))
         run.font.color.rgb = RGBColor(0, 32, 96)
 
     def add_page_content(
@@ -171,6 +190,15 @@ class WordBuilder:
                 prefix_len = 3 if line.startswith("## ") else 4
                 self._format_text_with_math_and_bold(p, line[prefix_len:].strip(), is_heading=True, heading_level=2)
             else:
+                # Check for sub-questions (a, b) and (c, d) in paper saver mode
+                if self.compact_paper_saver:
+                    subq_res = self._try_parse_subquestions(lines, i)
+                    if subq_res is not None:
+                        subq_items, next_i = subq_res
+                        self._render_subquestions_table(subq_items, image_map, selected_image_ids, used_image_ids)
+                        i = next_i
+                        continue
+
                 # Check for multiple-choice options (A, B, C, D)
                 if self.format_multiple_choice:
                     mc_result = self._try_parse_multiple_choice(lines, i)
@@ -181,11 +209,12 @@ class WordBuilder:
                         continue
 
                 p = self.doc.add_paragraph()
-                if re.match(r'^(?:\*\*)?(?:Câu|Bài|Khẳng định|Ví dụ)\s+\d+', line):
-                    p.paragraph_format.space_before = Pt(4)
-                    p.paragraph_format.space_after = Pt(2)
+                is_q = bool(re.match(r'^(?:\*\*)?(?:Câu|Bài|Khẳng định|Ví dụ)\s+\d+', line))
+                if self.compact_paper_saver:
+                    p.paragraph_format.space_before = Pt(3 if is_q else 0)
+                    p.paragraph_format.space_after = Pt(1)
                 else:
-                    p.paragraph_format.space_before = Pt(1)
+                    p.paragraph_format.space_before = Pt(4 if is_q else 1)
                     p.paragraph_format.space_after = Pt(2)
                 self._format_text_with_math_and_bold(p, line)
 
@@ -243,14 +272,20 @@ class WordBuilder:
                 </w:tblBorders>
             ''')
             tblPr.append(borders)
-            col_widths = [Inches(3.3), Inches(3.5)]
+            if self.compact_paper_saver:
+                col_widths = [Inches(3.80), Inches(3.88)]
+            else:
+                col_widths = [Inches(3.30), Inches(3.50)]
         else:
             table.style = 'Table Grid'
-            # 3-column marking scheme table: Câu (0.9") | Đáp án (5.0") | Điểm (0.9")
+            # 3-column marking scheme table: Câu (0.6"/0.9") | Đáp án (6.48"/5.0") | Điểm (0.6"/0.9")
             if col_count == 3:
-                col_widths = [Inches(0.9), Inches(5.0), Inches(0.9)]
+                if self.compact_paper_saver:
+                    col_widths = [Inches(0.60), Inches(6.48), Inches(0.60)]
+                else:
+                    col_widths = [Inches(0.90), Inches(5.00), Inches(0.90)]
             else:
-                col_widths = [Inches(6.8 / col_count)] * col_count
+                col_widths = [Inches(self.printable_width.inches / col_count)] * col_count
 
         for row_idx, row_data in enumerate(parsed_rows):
             is_header = (row_idx == 0 and not is_exam_header)
@@ -273,8 +308,8 @@ class WordBuilder:
                 # Clear default empty paragraph
                 p = cell.paragraphs[0]
                 p.paragraph_format.line_spacing = 1.15
-                p.paragraph_format.space_after = Pt(2)
-                p.paragraph_format.space_before = Pt(2)
+                p.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 2)
+                p.paragraph_format.space_before = Pt(1 if self.compact_paper_saver else 2)
 
                 # Center align column 0 (Câu) and last column (Điểm), or header
                 if is_header or is_exam_header or col_idx == 0 or (col_count == 3 and col_idx == 2):
@@ -293,8 +328,8 @@ class WordBuilder:
                     else:
                         cur_p = cell.add_paragraph()
                         cur_p.paragraph_format.line_spacing = 1.15
-                        cur_p.paragraph_format.space_after = Pt(2)
-                        cur_p.paragraph_format.space_before = Pt(2)
+                        cur_p.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 2)
+                        cur_p.paragraph_format.space_before = Pt(1 if self.compact_paper_saver else 2)
                         if is_header or is_exam_header or col_idx == 0 or (col_count == 3 and col_idx == 2):
                             cur_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -312,24 +347,25 @@ class WordBuilder:
                                 img_p = cell.add_paragraph() if before_t else cur_p
                                 img_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                                 img_p.paragraph_format.line_spacing = 1.0
-                                img_p.paragraph_format.space_before = Pt(2)
-                                img_p.paragraph_format.space_after = Pt(2)
+                                img_p.paragraph_format.space_before = Pt(1 if self.compact_paper_saver else 2)
+                                img_p.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 2)
                                 run_pic = img_p.add_run()
-                                run_pic.add_picture(img_path, width=Inches(3.0))
+                                pic_w = Inches(2.4) if self.compact_paper_saver else Inches(3.0)
+                                run_pic.add_picture(img_path, width=pic_w)
 
                         after_t = clean_part[fig_match.end():].strip()
                         if after_t:
                             after_p = cell.add_paragraph()
                             after_p.paragraph_format.line_spacing = 1.15
-                            after_p.paragraph_format.space_before = Pt(2)
-                            after_p.paragraph_format.space_after = Pt(2)
+                            after_p.paragraph_format.space_before = Pt(1 if self.compact_paper_saver else 2)
+                            after_p.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 2)
                             self._format_text_with_math_and_bold(after_p, after_t, is_bold_all=(is_header or is_exam_header))
                     else:
                         self._format_text_with_math_and_bold(cur_p, clean_part, is_bold_all=(is_header or is_exam_header))
 
         # Space after table
         sp_after = self.doc.add_paragraph()
-        sp_after.paragraph_format.space_before = Pt(4)
+        sp_after.paragraph_format.space_before = Pt(2 if self.compact_paper_saver else 4)
         sp_after.paragraph_format.space_after = Pt(0)
 
     def _try_parse_multiple_choice(self, lines: List[str], start_idx: int) -> Optional[Tuple[List[str], int]]:
@@ -569,11 +605,13 @@ class WordBuilder:
         cell_left = table.cell(0, 0)
         cell_right = table.cell(0, 1)
 
-        # Standard page printable width = 6.69 inches
-        # Left (Prompt): 4.35 inches (~65%)
-        # Right (Figure): 2.34 inches (~35%)
-        cell_left.width = Inches(4.35)
-        cell_right.width = Inches(2.34)
+        # Standard page printable width = 6.69 inches; Paper saver = 7.68 inches
+        if self.compact_paper_saver:
+            cell_left.width = Inches(5.18)
+            cell_right.width = Inches(2.50)
+        else:
+            cell_left.width = Inches(4.35)
+            cell_right.width = Inches(2.34)
         cell_left.vertical_alignment = WD_ALIGN_VERTICAL.TOP
         cell_right.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
@@ -582,8 +620,8 @@ class WordBuilder:
             p = cell_left.paragraphs[0] if idx == 0 else cell_left.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.line_spacing = 1.15
-            p.paragraph_format.space_before = Pt(3 if idx == 0 else 1)
-            p.paragraph_format.space_after = Pt(2)
+            p.paragraph_format.space_before = Pt(2 if idx == 0 else 0) if self.compact_paper_saver else Pt(3 if idx == 0 else 1)
+            p.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 2)
             self._format_text_with_math_and_bold(p, text_line)
 
         # Render figure on Right
@@ -595,11 +633,12 @@ class WordBuilder:
 
         try:
             run_img = p_img.add_run()
-            # Constrain image within 2.2" width x 2.4" height
-            if img_w_px > 0 and (img_h_px / img_w_px) > (2.4 / 2.2):
-                run_img.add_picture(img_path, height=Inches(2.3))
+            pic_h = Inches(2.1) if self.compact_paper_saver else Inches(2.3)
+            pic_w = Inches(2.4) if self.compact_paper_saver else Inches(2.2)
+            if img_w_px > 0 and (img_h_px / img_w_px) > (pic_h.inches / pic_w.inches):
+                run_img.add_picture(img_path, height=pic_h)
             else:
-                run_img.add_picture(img_path, width=Inches(2.2))
+                run_img.add_picture(img_path, width=pic_w)
         except Exception:
             pass
 
@@ -624,6 +663,85 @@ class WordBuilder:
         tblPr.append(borders)
         return table
 
+    def _try_parse_subquestions(self, lines: List[str], start_idx: int) -> Optional[Tuple[List[str], int]]:
+        """
+        Detects if lines starting at start_idx form a pair (a, b) or quadruplet (a, b, c, d)
+        of essay sub-questions that can be packed into a 2-column borderless table
+        to save 50% vertical paper height, matching professional exam papers.
+        """
+        if start_idx >= len(lines):
+            return None
+
+        line_a = lines[start_idx].strip()
+        m_a = re.match(r'^(?:[-*•]\s+)?(?:\*\*)?(?:<u>)?([a-d])[\.:\)](?:</u>)?(?:\*\*)?\s+(.*)', line_a)
+        if not m_a or m_a.group(1).lower() != 'a' or '[HINH_' in line_a:
+            return None
+
+        # Look for b) in next non-empty line
+        j = start_idx + 1
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+
+        if j >= len(lines):
+            return None
+
+        line_b = lines[j].strip()
+        m_b = re.match(r'^(?:[-*•]\s+)?(?:\*\*)?(?:<u>)?([a-d])[\.:\)](?:</u>)?(?:\*\*)?\s+(.*)', line_b)
+        if not m_b or m_b.group(1).lower() != 'b' or '[HINH_' in line_b:
+            return None
+
+        # If either sub-question is too long (e.g. > 70 characters), keep single column
+        if len(line_a) > 70 or len(line_b) > 70:
+            return None
+
+        items = [line_a, line_b]
+        last_idx = j
+
+        # Check for optional c) and d)
+        k = j + 1
+        while k < len(lines) and not lines[k].strip():
+            k += 1
+
+        if k < len(lines):
+            line_c = lines[k].strip()
+            m_c = re.match(r'^(?:[-*•]\s+)?(?:\*\*)?(?:<u>)?([a-d])[\.:\)](?:</u>)?(?:\*\*)?\s+(.*)', line_c)
+            if m_c and m_c.group(1).lower() == 'c' and '[HINH_' not in line_c and len(line_c) <= 70:
+                l = k + 1
+                while l < len(lines) and not lines[l].strip():
+                    l += 1
+                if l < len(lines):
+                    line_d = lines[l].strip()
+                    m_d = re.match(r'^(?:[-*•]\s+)?(?:\*\*)?(?:<u>)?([a-d])[\.:\)](?:</u>)?(?:\*\*)?\s+(.*)', line_d)
+                    if m_d and m_d.group(1).lower() == 'd' and '[HINH_' not in line_d and len(line_d) <= 70:
+                        items.extend([line_c, line_d])
+                        last_idx = l
+
+        return items, last_idx + 1
+
+    def _render_subquestions_table(
+        self,
+        subq_items: List[str],
+        image_map: Dict[str, str],
+        selected_image_ids: List[str],
+        used_image_ids: set
+    ):
+        """Renders sub-questions a, b (and c, d) side-by-side in a 2-column borderless table."""
+        num_rows = (len(subq_items) + 1) // 2
+        table = self._create_borderless_table(rows=num_rows, cols=2)
+        col_w = Inches(self.printable_width.inches / 2.0)
+        for idx, item in enumerate(subq_items):
+            r = idx // 2
+            c = idx % 2
+            cell = table.cell(r, c)
+            cell.width = col_w
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+            p = cell.paragraphs[0]
+            p.paragraph_format.line_spacing = 1.15
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(1)
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            self._format_text_with_math_and_bold(p, item)
+
     def _render_option_cell(
         self,
         cell,
@@ -637,8 +755,8 @@ class WordBuilder:
         cell.width = col_width
         p = cell.paragraphs[0]
         p.paragraph_format.line_spacing = 1.15
-        p.paragraph_format.space_before = Pt(1)
-        p.paragraph_format.space_after = Pt(2)
+        p.paragraph_format.space_before = Pt(0 if self.compact_paper_saver else 1)
+        p.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 2)
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
         fig_match = re.search(r'\[(HINH_\w+)\]', opt_text)
@@ -658,8 +776,8 @@ class WordBuilder:
             if after_text:
                 p2 = cell.add_paragraph()
                 p2.paragraph_format.line_spacing = 1.15
-                p2.paragraph_format.space_before = Pt(1)
-                p2.paragraph_format.space_after = Pt(2)
+                p2.paragraph_format.space_before = Pt(0 if self.compact_paper_saver else 1)
+                p2.paragraph_format.space_after = Pt(1 if self.compact_paper_saver else 2)
                 self._format_text_with_math_and_bold(p2, after_text)
         else:
             self._format_text_with_math_and_bold(p, opt_text)
@@ -674,25 +792,29 @@ class WordBuilder:
         """
         Renders 4 multiple-choice options (A, B, C, D) using a clean borderless Word table.
         Layout decision according to Ministry of Education & Training exam standards:
-        - 1 row x 4 columns: when all options are short (max_len <= 15 and total_len <= 55)
-        - 2 rows x 2 columns: when options are medium (max_len <= 38 and total_len <= 140)
+        - 1 row x 4 columns: when all options are short (max_len <= 18 in paper saver)
+        - 2 rows x 2 columns: when options are medium (max_len <= 42)
         - 4 rows x 1 column: when options are long sentences/explanations
         """
         lengths = [self._calc_option_length(o) for o in options]
         max_len = max(lengths)
         total_len = sum(lengths)
+        pw = self.printable_width.inches
+
+        limit_single = 18 if self.compact_paper_saver else 15
+        limit_total = 68 if self.compact_paper_saver else 55
 
         # 1 dòng 4 cột (4 columns x 1 row)
-        if max_len <= 15 and total_len <= 55:
+        if max_len <= limit_single and total_len <= limit_total:
             table = self._create_borderless_table(rows=1, cols=4)
-            col_w = Inches(1.67)
+            col_w = Inches(pw / 4.0)
             for idx, opt in enumerate(options):
                 self._render_option_cell(table.cell(0, idx), opt, col_w, image_map, selected_image_ids, used_image_ids)
 
         # 2 dòng 2 cột (2 columns x 2 rows)
-        elif max_len <= 38 and total_len <= 140:
+        elif max_len <= 42 and total_len <= 150:
             table = self._create_borderless_table(rows=2, cols=2)
-            col_w = Inches(3.34)
+            col_w = Inches(pw / 2.0)
             # Row 0: A, B
             self._render_option_cell(table.cell(0, 0), options[0], col_w, image_map, selected_image_ids, used_image_ids)
             self._render_option_cell(table.cell(0, 1), options[1], col_w, image_map, selected_image_ids, used_image_ids)
@@ -703,7 +825,7 @@ class WordBuilder:
         # 4 dòng 1 cột (1 column x 4 rows)
         else:
             table = self._create_borderless_table(rows=4, cols=1)
-            col_w = Inches(6.69)
+            col_w = Inches(pw)
             for idx, opt in enumerate(options):
                 self._render_option_cell(table.cell(idx, 0), opt, col_w, image_map, selected_image_ids, used_image_ids)
 
@@ -811,12 +933,12 @@ class WordBuilder:
     def _insert_image(self, image_path: str):
         p = self.doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_before = Pt(4)
-        p.paragraph_format.space_after = Pt(6)
+        p.paragraph_format.space_before = Pt(2 if self.compact_paper_saver else 4)
+        p.paragraph_format.space_after = Pt(3 if self.compact_paper_saver else 6)
         try:
-            # 3.0 inches (~7.6 cm) is optimal for geometry and diagrams in exam papers
             run = p.add_run()
-            run.add_picture(image_path, width=Inches(3.0))
+            pic_w = Inches(2.5) if self.compact_paper_saver else Inches(3.0)
+            run.add_picture(image_path, width=pic_w)
         except Exception:
             pass
 
