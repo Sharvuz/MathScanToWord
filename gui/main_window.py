@@ -45,6 +45,8 @@ class OCRWorker(QThread):
         self.file_path = file_path
         self.pages_to_process = pages_to_process
         self.config = config
+        self.api_keys = config.get("api_keys", [])
+        self.model = config.get("model", "gemini-2.5-flash")
         self.cache_manager = cache_manager
         self.is_running = True
 
