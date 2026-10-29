@@ -15,6 +15,10 @@ class PDFProcessor:
         return count
 
     @staticmethod
+    def get_pdf_page_count(pdf_path: str) -> int:
+        return PDFProcessor.get_page_count(pdf_path)
+
+    @staticmethod
     def render_page_to_image(
         pdf_path: str,
         page_number: int,

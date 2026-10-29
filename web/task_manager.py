@@ -159,8 +159,15 @@ class TaskWorker:
             # 1. Xác định số trang & dải trang cần xử lý (Page Range Selector)
             pages_to_process = []
             if is_pdf:
-                doc_info = PDFProcessor.get_pdf_page_count(file_path)
-                total_p = doc_info if isinstance(doc_info, int) else len(doc_info)
+                try:
+                    total_p = PDFProcessor.get_page_count(file_path)
+                except Exception:
+                    try:
+                        import pymupdf as fitz
+                        with fitz.open(file_path) as doc:
+                            total_p = len(doc)
+                    except Exception:
+                        total_p = 1
                 task.total_pages = total_p
 
                 page_mode = merged_opts.get("page_mode", "all")
