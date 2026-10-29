@@ -48,9 +48,9 @@ async def admin_dashboard_page(
     sys_settings = get_system_settings()
 
     return templates.TemplateResponse(
-        "admin.html",
-        {
-            "request": request,
+        request=request,
+        name="admin.html",
+        context={
             "user": admin,
             "users_count": users_count,
             "tasks_count": tasks_count,

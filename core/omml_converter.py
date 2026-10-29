@@ -1,8 +1,11 @@
 import os
 import re
+import logging
 from typing import Optional
 from lxml import etree
 import latex2mathml.converter
+
+logger = logging.getLogger("OMMLConverter")
 
 class OMMLConverter:
     _transform = None
@@ -32,6 +35,10 @@ class OMMLConverter:
             r"C:\Program Files (x86)\Microsoft Office\Root\Office16\MML2OMML.XSL",
             r"C:\Program Files\Microsoft Office\Office16\MML2OMML.XSL",
             r"C:\Program Files (x86)\Microsoft Office\Office16\MML2OMML.XSL",
+            r"C:\Program Files\Microsoft Office\Root\Office17\MML2OMML.XSL",
+            r"C:\Program Files (x86)\Microsoft Office\Root\Office17\MML2OMML.XSL",
+            r"C:\Program Files\Microsoft Office\Office17\MML2OMML.XSL",
+            r"C:\Program Files (x86)\Microsoft Office\Office17\MML2OMML.XSL",
             r"C:\Program Files\Microsoft Office\Office15\MML2OMML.XSL",
             r"C:\Program Files (x86)\Microsoft Office\Office15\MML2OMML.XSL"
         ]
@@ -47,9 +54,11 @@ class OMMLConverter:
                 xslt_doc = etree.parse(xslt_path)
                 cls._transform = etree.XSLT(xslt_doc)
                 cls._xslt_found = True
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Lỗi khi nạp XSLT từ {xslt_path}: {e}")
                 cls._xslt_found = False
         else:
+            logger.warning("Không tìm thấy tệp MML2OMML.XSL của Microsoft Office trên máy tính.")
             cls._xslt_found = False
 
     @classmethod

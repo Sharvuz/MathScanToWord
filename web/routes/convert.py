@@ -33,14 +33,18 @@ async def dashboard_page(
 ):
     current_user = get_current_user_from_session(request, db)
     if not current_user:
-        return templates.TemplateResponse("login.html", {"request": request, "error": None})
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"error": None, "user": None}
+        )
 
     user_tasks = db.query(Task).filter(Task.user_id == current_user.id).order_by(Task.created_at.desc()).limit(20).all()
 
     return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
+        request=request,
+        name="dashboard.html",
+        context={
             "user": current_user,
             "recent_tasks": user_tasks
         }

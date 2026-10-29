@@ -16,7 +16,11 @@ async def login_page(request: Request, db: Session = Depends(get_db)):
     current_user = get_current_user_from_session(request, db)
     if current_user:
         return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"error": None, "user": None}
+    )
 
 
 @router.post("/login", response_class=HTMLResponse)
@@ -31,15 +35,17 @@ async def handle_login(
 
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "error": "Tên đăng nhập hoặc mật khẩu không chính xác.", "username": username},
+            request=request,
+            name="login.html",
+            context={"error": "Tên đăng nhập hoặc mật khẩu không chính xác.", "username": username, "user": None},
             status_code=400
         )
 
     if not user.is_active:
         return templates.TemplateResponse(
-            "login.html",
-            {"request": request, "error": "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Admin.", "username": username},
+            request=request,
+            name="login.html",
+            context={"error": "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Admin.", "username": username, "user": None},
             status_code=403
         )
 
