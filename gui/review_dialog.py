@@ -192,21 +192,23 @@ class FigureCard(QFrame):
             self.btn_toggle_version.setText("🔄 Đổi sang ảnh gốc")
         self._update_thumbnail()
 
-    def _ai_redraw_figure(self):
+    def _ai_redraw_figure(self, silent: bool = False):
         crop_path = self.fig_data.get("original_path") or self.fig_data["cropped_path"]
         if not os.path.exists(crop_path):
-            QMessageBox.warning(self, "Lỗi", "Không tìm thấy file ảnh gốc để vẽ lại.")
+            if not silent:
+                QMessageBox.warning(self, "Lỗi", "Không tìm thấy file ảnh gốc để vẽ lại.")
             return
 
         api_keys = getattr(self.parent_dialog, "api_keys", []) or []
         model = getattr(self.parent_dialog, "model", "gemini-2.5-flash")
 
         if not api_keys:
-            QMessageBox.warning(
-                self,
-                "Chưa có API Key",
-                "Vui lòng cấu hình Gemini API Key trong tab Cấu hình để sử dụng tính năng AI vẽ lại hình học!"
-            )
+            if not silent:
+                QMessageBox.warning(
+                    self,
+                    "Chưa có API Key",
+                    "Vui lòng cấu hình Gemini API Key trong tab Cấu hình để sử dụng tính năng AI vẽ lại hình học!"
+                )
             return
 
         self.btn_ai_redraw.setText("⏳ Đang vẽ...")
@@ -242,20 +244,23 @@ class FigureCard(QFrame):
                 self.btn_toggle_version.setVisible(True)
                 self.btn_toggle_version.setText("🔄 Đổi sang ảnh gốc")
                 self.btn_ai_redraw.setText("✨ Đã vẽ lại")
-                QMessageBox.information(
-                    self,
-                    "Thành công",
-                    "Đã dùng AI tái tạo lại hình học thẳng góc, chuẩn xác và siêu nét 300 DPI!"
-                )
+                if not silent:
+                    QMessageBox.information(
+                        self,
+                        "Thành công",
+                        "Đã dùng AI tái tạo lại hình học thẳng góc, chuẩn xác và siêu nét 300 DPI!"
+                    )
             else:
-                QMessageBox.warning(
-                    self,
-                    "Không thể vẽ lại",
-                    "AI không thể vẽ lại hình này (hoặc hình không thuộc dạng hình học). Đã giữ nguyên ảnh gốc."
-                )
+                if not silent:
+                    QMessageBox.warning(
+                        self,
+                        "Không thể vẽ lại",
+                        "AI không thể vẽ lại hình này (hoặc hình không thuộc dạng hình học). Đã giữ nguyên ảnh gốc."
+                    )
                 self.btn_ai_redraw.setText("✨ AI vẽ lại hình")
         except Exception as e:
-            QMessageBox.critical(self, "Lỗi", f"Có lỗi xảy ra khi vẽ lại: {str(e)}")
+            if not silent:
+                QMessageBox.critical(self, "Lỗi", f"Có lỗi xảy ra khi vẽ lại: {str(e)}")
             self.btn_ai_redraw.setText("✨ AI vẽ lại hình")
         finally:
             self.btn_ai_redraw.setEnabled(True)
@@ -525,7 +530,7 @@ class ReviewDialog(QDialog):
         success_count = 0
         from PyQt6.QtWidgets import QApplication
         for c in targets:
-            c._do_ai_redraw()
+            c._ai_redraw_figure(silent=True)
             if c.fig_data.get("redraw_path"):
                 success_count += 1
             QApplication.processEvents()
@@ -650,26 +655,26 @@ class ReviewDialog(QDialog):
                     }
 
                     self.figures_list.append(new_fig)
-                
-                # Re-render cards list
-                self._render_cards()
-                
-                # Save to cache if cache_manager is present
-                if self.cache_manager and doc_dir:
-                    cached = self.cache_manager.get_page_result(doc_dir, selected_page)
-                    if cached:
-                        figs = cached.get("figures", [])
-                        figs.append(new_fig)
-                        cached["figures"] = figs
-                        self.cache_manager.save_page_result(doc_dir, selected_page, cached)
+                    
+                    # Re-render cards list
+                    self._render_cards()
+                    
+                    # Save to cache if cache_manager is present
+                    if self.cache_manager and doc_dir:
+                        cached = self.cache_manager.get_page_result(doc_dir, selected_page)
+                        if cached:
+                            figs = cached.get("figures", [])
+                            figs.append(new_fig)
+                            cached["figures"] = figs
+                            self.cache_manager.save_page_result(doc_dir, selected_page, cached)
 
-                self.setWindowTitle(f"Xem lại & Quản lý hình ảnh ({len(self.figures_list)} hình)")
-                QMessageBox.information(
-                    self,
-                    "Thành công",
-                    f"Đã thêm thành công <b>Hình {new_disp_num}</b> (Trang {selected_page})!<br>"
-                    f"Hình đã được lưu và sẽ được tự động chèn vào file Word khi bạn bấm <b>'Đồng ý'</b>."
-                )
+                    self.setWindowTitle(f"Xem lại & Quản lý hình ảnh ({len(self.figures_list)} hình)")
+                    QMessageBox.information(
+                        self,
+                        "Thành công",
+                        f"Đã thêm thành công <b>Hình {new_disp_num}</b> (Trang {selected_page})!<br>"
+                        f"Hình đã được lưu và sẽ được tự động chèn vào file Word khi bạn bấm <b>'Đồng ý'</b>."
+                    )
 
         except Exception as e:
             QMessageBox.critical(self, "Lỗi thêm hình", f"Không thể thêm hình mới: {str(e)}")

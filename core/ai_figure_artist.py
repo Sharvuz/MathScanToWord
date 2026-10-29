@@ -6,9 +6,13 @@ import base64
 import time
 import subprocess
 import tempfile
+import ast
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 import requests
+
+logger = logging.getLogger("AIGeometryArtist")
 
 class AIGeometryArtist:
     """
@@ -28,6 +32,67 @@ class AIGeometryArtist:
         "góc", "đường cao", "trung tuyến", "phân giác", "song song", "vuông góc",
         "tiếp tuyến", "dây cung", "cung tròn", "hình học", "vectơ", "vector"
     ]
+
+    DANGEROUS_MODULES = {
+        'os', 'sys', 'subprocess', 'shutil', 'requests', 'urllib', 'socket',
+        'http', 'builtins', '__builtin__', 'importlib', 'ctypes', 'threading',
+        'multiprocessing', 'signal', 'winreg', 'msvcrt', 'pathlib', 'tempfile',
+        'pickle', 'pty', 'platform', 'inspect', 'pdb'
+    }
+
+    ALLOWED_MODULES = {
+        'matplotlib', 'mpl_toolkits', 'numpy', 'np', 'math', 'scipy', 'shapely', 'seaborn'
+    }
+
+    DANGEROUS_FUNCTIONS = {
+        'eval', 'exec', 'open', 'compile', '__import__', 'globals', 'locals',
+        'getattr', 'setattr', 'delattr', 'input', 'breakpoint', 'exit', 'quit'
+    }
+
+    @classmethod
+    def _is_code_safe(cls, code: str) -> Tuple[bool, str]:
+        """
+        Kiểm tra tĩnh AST của đoạn mã Python do AI sinh ra.
+        Chặn triệt để mọi hành vi truy cập hệ thống, mạng, tệp tin hoặc gọi lệnh nguy hiểm.
+        """
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return False, f"Lỗi cú pháp Python: {e}"
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_pkg = alias.name.split('.')[0]
+                    if root_pkg in cls.DANGEROUS_MODULES or (root_pkg not in cls.ALLOWED_MODULES):
+                        return False, f"Chặn import module không được phép: {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    root_pkg = node.module.split('.')[0]
+                    if root_pkg in cls.DANGEROUS_MODULES or (root_pkg not in cls.ALLOWED_MODULES):
+                        return False, f"Chặn from-import module không được phép: {node.module}"
+            elif isinstance(node, ast.Call):
+                func_name = ""
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    func_name = node.func.attr
+                if func_name in cls.DANGEROUS_FUNCTIONS:
+                    return False, f"Chặn gọi hàm nguy hiểm: {func_name}"
+
+        return True, "Safe"
+
+    @classmethod
+    def _is_valid_image(cls, file_path: str) -> bool:
+        """Kiểm tra tệp ảnh có tồn tại và đọc hợp lệ không."""
+        if not os.path.exists(file_path) or os.path.getsize(file_path) < 1000:
+            return False
+        try:
+            with Image.open(file_path) as img:
+                img.verify()
+            return True
+        except Exception:
+            return False
 
     @classmethod
     def is_likely_geometry(cls, description: str = "", context_text: str = "") -> bool:
@@ -145,7 +210,6 @@ class AIGeometryArtist:
 
                 # Thay thế đường dẫn lưu file đích
                 norm_out_path = os.path.abspath(output_path).replace("\\", "/")
-                # Tìm chuỗi savefig và thay đường dẫn
                 if "TARGET_OUTPUT_PATH" in python_code:
                     python_code = python_code.replace("TARGET_OUTPUT_PATH", norm_out_path)
                 else:
@@ -157,10 +221,11 @@ class AIGeometryArtist:
 
                 # Thực thi mã Python an toàn trong tiến trình con
                 success = cls._execute_render_script(python_code, output_path)
-                if success and os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+                if success and cls._is_valid_image(output_path):
                     return output_path
 
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Lỗi khi xử lý response vẽ hình: {e}")
                 continue
 
         return None
@@ -168,17 +233,32 @@ class AIGeometryArtist:
     @classmethod
     def _execute_render_script(cls, python_code: str, expected_output_path: str) -> bool:
         """
-        Thực thi đoạn mã vẽ Matplotlib trong file tạm với timeout an toàn.
+        Thực thi đoạn mã vẽ Matplotlib trong môi trường sandbox với kiểm tra AST và timeout an toàn.
         """
+        # 1. Kiểm tra an toàn trước khi thực thi
+        is_safe, reason = cls._is_code_safe(python_code)
+        if not is_safe:
+            logger.warning(f"AI Figure Artist: Đoạn mã bị từ chối thực thi vì lý do an toàn ({reason})")
+            return False
+
+        # 2. Bổ sung headless backend Agg và vô hiệu hóa plt.show() để tránh treo GUI
+        safe_wrapped_code = (
+            "import matplotlib\n"
+            "matplotlib.use('Agg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "plt.show = lambda *args, **kwargs: None\n\n"
+            + python_code
+        )
+
         os.makedirs(os.path.dirname(os.path.abspath(expected_output_path)), exist_ok=True)
         temp_file = None
         try:
             with tempfile.NamedTemporaryFile("w", suffix=".py", encoding="utf-8", delete=False) as tf:
                 temp_file = tf.name
-                tf.write(python_code)
+                tf.write(safe_wrapped_code)
 
             python_exe = sys.executable
-            # Gọi tiến trình con
+            # Gọi tiến trình con chạy script
             result = subprocess.run(
                 [python_exe, temp_file],
                 stdout=subprocess.PIPE,
@@ -189,8 +269,15 @@ class AIGeometryArtist:
 
             if result.returncode == 0 and os.path.exists(expected_output_path):
                 return True
+            else:
+                if result.returncode != 0:
+                    logger.warning(f"AI Figure Artist script runtime error (code {result.returncode}): {result.stderr[:300]}")
+                return False
+        except subprocess.TimeoutExpired:
+            logger.warning("AI Figure Artist: Script vẽ hình quá thời gian chờ (Timeout sau 18s).")
             return False
-        except Exception:
+        except Exception as e:
+            logger.warning(f"AI Figure Artist execute error: {e}")
             return False
         finally:
             if temp_file and os.path.exists(temp_file):

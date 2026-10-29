@@ -25,6 +25,7 @@ dist/
 input/
 output/
 output_images/
+data/
 *.docx
 *.pdf
 *.png

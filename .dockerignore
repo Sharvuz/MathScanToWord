@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.git
+.github
+checkpoints
+scratch
+input
+output
+data/uploads/*
+data/output/*
+data/cache/*
+*.log

@@ -4,8 +4,12 @@ import base64
 import requests
 import io
 import re
+import threading
+import logging
 from typing import List, Dict, Any, Optional, Callable
 from PIL import Image
+
+logger = logging.getLogger("GeminiEngine")
 
 SYSTEM_PROMPT = """Bạn là chuyên gia số hóa tài liệu toán học Việt Nam với độ chính xác tuyệt đối.
 Nhiệm vụ của bạn là đọc hình ảnh trang sách toán scan này và trích xuất thành văn bản có công thức toán học chuẩn LaTeX (hỗ trợ MathType Toggle TeX) và nhận diện tọa độ các hình minh họa/hình học/đồ thị.
@@ -71,6 +75,7 @@ class GeminiEngine:
         self.slow_threshold = slow_threshold_seconds
         self.log_callback = log_callback or (lambda msg, level: None)
         self.current_key_idx = 0
+        self._lock = threading.Lock()
 
     def log(self, message: str, level: str = "info"):
         """level can be 'info' (green/white), 'warning' (orange), 'error' (red), 'debug' (blue)"""
@@ -79,21 +84,30 @@ class GeminiEngine:
         self.log_callback(formatted, level)
 
     def get_current_key(self) -> str:
-        if not self.api_keys:
-            raise ValueError("Không có API Key nào được cấu hình!")
-        return self.api_keys[self.current_key_idx]
+        with self._lock:
+            if not self.api_keys:
+                raise ValueError("Không có API Key nào được cấu hình!")
+            return self.api_keys[self.current_key_idx]
 
     def rotate_to_next_key(self, reason: str = ""):
-        if len(self.api_keys) <= 1:
-            return
-        old_idx = self.current_key_idx
-        self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
+        with self._lock:
+            if len(self.api_keys) <= 1:
+                return
+            old_idx = self.current_key_idx
+            self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
+            new_idx = self.current_key_idx
         self.log(
-            f"{reason} Chuyển từ API {old_idx + 1} sang API {self.current_key_idx + 1}.",
+            f"{reason} Chuyển từ API {old_idx + 1} sang API {new_idx + 1}.",
             "warning"
         )
 
-    def process_page_image(self, image: Image.Image, page_num: int, preferred_key_idx: Optional[int] = None) -> Dict[str, Any]:
+    def process_page_image(
+        self,
+        image: Image.Image,
+        page_num: int,
+        preferred_key_idx: Optional[int] = None,
+        recursion_depth: int = 0
+    ) -> Dict[str, Any]:
         """
         Sends page image to Gemini with auto-retry and multi-key rotation.
         Supports preferred_key_idx for thread-safe concurrent execution across multiple keys!
@@ -106,7 +120,9 @@ class GeminiEngine:
 
         max_attempts = max(6, len(self.api_keys) * 3)
         attempt = 0
-        local_key_idx = (preferred_key_idx if preferred_key_idx is not None else self.current_key_idx) % len(self.api_keys)
+        with self._lock:
+            default_key_idx = self.current_key_idx
+        local_key_idx = (preferred_key_idx if preferred_key_idx is not None else default_key_idx) % len(self.api_keys)
         use_anti_recitation = False
         recitation_count = 0
 
@@ -194,11 +210,19 @@ class GeminiEngine:
                             )
                             use_anti_recitation = True
                             if recitation_count >= 2:
-                                self.log(
-                                    f"[Trang {page_num}] ✂ Tự động chia nửa trang (Top/Bottom) để vượt triệt để bộ lọc Recitation...",
-                                    "info"
-                                )
-                                return self._process_halved_page(image, page_num, local_key_idx)
+                                if recursion_depth < 1:
+                                    self.log(
+                                        f"[Trang {page_num}] ✂ Tự động chia nửa trang (Top/Bottom) để vượt triệt để bộ lọc Recitation...",
+                                        "info"
+                                    )
+                                    return self._process_halved_page(image, page_num, local_key_idx, recursion_depth=recursion_depth + 1)
+                                else:
+                                    self.log(
+                                        f"[Trang {page_num}] ⚠️ Đã đạt giới hạn chia trang (depth={recursion_depth}), tiếp tục thử API key tiếp theo...",
+                                        "warning"
+                                    )
+                                    local_key_idx = (local_key_idx + 1) % len(self.api_keys)
+                                    continue
                             time.sleep(1)
                             continue
                         elif finish_reason == "SAFETY":
@@ -247,7 +271,13 @@ class GeminiEngine:
 
         raise RuntimeError(f"Không thể xử lý trang {page_num} sau nhiều lần thử với tất cả API keys.")
 
-    def _process_halved_page(self, image: Image.Image, page_num: int, preferred_key_idx: int) -> Dict[str, Any]:
+    def _process_halved_page(
+        self,
+        image: Image.Image,
+        page_num: int,
+        preferred_key_idx: int,
+        recursion_depth: int = 1
+    ) -> Dict[str, Any]:
         """
         Chia trang theo chiều dọc (Top half / Bottom half) để vượt qua bộ lọc Recitation.
         Tự động mapping tọa độ box_2d của nửa dưới về tọa độ 0..1000 của toàn trang.
@@ -258,10 +288,10 @@ class GeminiEngine:
         bot_img = image.crop((0, max(0, split_y - 15), w, h))
 
         self.log(f"[Trang {page_num}] 📖 Đang bóc tách Nửa trên...", "info")
-        resp_top = self.process_page_image(top_img, page_num, preferred_key_idx=preferred_key_idx)
+        resp_top = self.process_page_image(top_img, page_num, preferred_key_idx=preferred_key_idx, recursion_depth=recursion_depth)
 
         self.log(f"[Trang {page_num}] 📖 Đang bóc tách Nửa dưới...", "info")
-        resp_bot = self.process_page_image(bot_img, page_num, preferred_key_idx=preferred_key_idx)
+        resp_bot = self.process_page_image(bot_img, page_num, preferred_key_idx=preferred_key_idx, recursion_depth=recursion_depth)
 
         md_top = resp_top.get("markdown", "").strip()
         md_bot = resp_bot.get("markdown", "").strip()
@@ -308,11 +338,16 @@ class GeminiEngine:
         Without this, \text becomes \x09ext (TAB + 'ext'), \frac becomes \x0crac (FF + 'rac'), etc.
         """
         latex_cmds = (
-            r'text|textbf|textit|texttt|tfrac|tan|tanh|theta|times|to|tau|top|triangle|'
-            r'dfrac|frac|forall|'
-            r'bar|beta|begin|binom|mathbf|boldsymbol|bullet|bot|'
-            r'right|rho|rangle|rightarrow|Rightarrow|'
-            r'neq|nabla|neg|notin'
+            # Commands starting with \t
+            r'text|textbf|textit|texttt|tfrac|tan|tanh|theta|times|to|tau|top|triangle|thickapprox|thicksim|tilde|tag|'
+            # Commands starting with \f
+            r'dfrac|frac|forall|flat|footnotesize|'
+            # Commands starting with \b
+            r'bar|beta|begin|binom|mathbf|boldsymbol|bullet|bot|bmod|box|Box|breve|bigcap|bigcup|bigodot|bigoplus|bigotimes|'
+            # Commands starting with \r
+            r'right|rho|rangle|rightarrow|Rightarrow|rfloor|rceil|Re|'
+            # Commands starting with \n
+            r'nu|not|natural|newline|nabla|neq|neg|notin|normalsize|nonumber'
         )
         pattern = rf'(?<!\\)\\({latex_cmds})\b'
         return re.sub(pattern, r'\\\\\1', text)
@@ -338,8 +373,8 @@ class GeminiEngine:
                     "markdown": data.get("markdown", ""),
                     "figures": data.get("figures", [])
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"json.loads failed on cleaned response, trying fallback: {e}")
 
         # 2. Advanced regex parser for unescaped LaTeX backslashes (\dfrac, \left, etc.)
         figures = []
@@ -347,17 +382,22 @@ class GeminiEngine:
         if fig_match:
             try:
                 figures = json.loads(fig_match.group(1))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Regex figures json parse failed: {e}")
 
         md_text = ""
-        md_match = re.search(r'"markdown"\s*:\s*"(.*)"\s*\}\s*$', cleaned, flags=re.DOTALL)
+        # Match markdown field cleanly
+        md_match = re.search(r'"markdown"\s*:\s*"(.*?)"(?:\s*,\s*"figures"|\s*\}\s*$)', cleaned, flags=re.DOTALL)
+        if not md_match:
+            md_match = re.search(r'"markdown"\s*:\s*"(.*)"\s*\}\s*$', cleaned, flags=re.DOTALL)
+
         if md_match:
             md_text = md_match.group(1)
             md_text = md_text.replace(r'\n', '\n').replace(r'\"', '"')
             return {"markdown": md_text, "figures": figures}
 
         # Fallback if model returned plain text instead of strict JSON
+        logger.warning("Gemini trả về văn bản tự do thay vì JSON, fallback dùng raw markdown.")
         return {
             "markdown": raw_text,
             "figures": []

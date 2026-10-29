@@ -1,0 +1,15 @@
+services:
+  wordscan-web:
+    build: .
+    container_name: wordscan-web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=admin123
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./config.json:/app/config.json

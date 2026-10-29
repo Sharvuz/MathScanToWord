@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+
+{% block title %}Quản Trị Trung Tâm - WordScan.me{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+  <!-- Admin Header -->
+  <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-6">
+    <div>
+      <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+        <span>👑</span> Bảng Quản Trị Trung Tâm
+      </h1>
+      <p class="text-sm text-slate-500 mt-1">
+        Quản lý danh sách giáo viên, cấp phát tài khoản và cấu hình quỹ Gemini API Keys.
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="/" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center gap-1.5">
+        ← Về Bàn Làm Việc
+      </a>
+    </div>
+  </div>
+
+  <!-- Stats Grid -->
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+    <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
+      <div class="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xl">
+        👥
+      </div>
+      <div>
+        <p class="text-xs font-bold text-slate-400 uppercase">Tổng Tài Khoản</p>
+        <p class="text-2xl font-black text-slate-800" id="stat-users">{{ users_count }}</p>
+      </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
+      <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-xl">
+        📄
+      </div>
+      <div>
+        <p class="text-xs font-bold text-slate-400 uppercase">Tài Liệu Đã Chuyển Đổi</p>
+        <p class="text-2xl font-black text-slate-800">{{ completed_tasks }} <span class="text-xs font-normal text-slate-400">/ {{ tasks_count }} file</span></p>
+      </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-4">
+      <div class="w-12 h-12 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold text-xl">
+        🔑
+      </div>
+      <div>
+        <p class="text-xs font-bold text-slate-400 uppercase">Quỹ Gemini API Keys</p>
+        <p class="text-2xl font-black text-slate-800" id="stat-keys">{{ settings.api_keys|length }} <span class="text-xs font-normal text-slate-400">Keys</span></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <div class="flex border-b border-slate-200 space-x-8 text-sm font-bold">
+    <button type="button" onclick="switchTab('users')" id="tab-btn-users"
+      class="pb-4 border-b-2 border-sky-600 text-sky-600 flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+      Danh Sách Giáo Viên
+    </button>
+    <button type="button" onclick="switchTab('settings')" id="tab-btn-settings"
+      class="pb-4 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+      Cấu Hình API Key & Model
+    </button>
+    <button type="button" onclick="switchTab('history')" id="tab-btn-history"
+      class="pb-4 border-b-2 border-transparent text-slate-500 hover:text-slate-700 flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+      Nhật Ký Chuyển Đổi Toàn Hệ Thống
+    </button>
+  </div>
+
+  <!-- TAB 1: USERS -->
+  <div id="tab-users" class="space-y-6">
+    <div class="flex items-center justify-between">
+      <h2 class="text-base font-bold text-slate-800">Quản Lý Người Dùng / Giáo Viên</h2>
+      <button type="button" onclick="openAddUserModal()"
+        class="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-600/20 transition flex items-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+        Tạo Tài Khoản Mới
+      </button>
+    </div>
+
+    <div class="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-600">
+          <thead class="bg-slate-50 text-slate-400 font-bold uppercase border-b border-slate-200">
+            <tr>
+              <th class="px-6 py-4">Tên Đăng Nhập</th>
+              <th class="px-6 py-4">Họ và Tên</th>
+              <th class="px-6 py-4">Vai Trò</th>
+              <th class="px-6 py-4">Số File Đã Làm</th>
+              <th class="px-6 py-4">Đăng Nhập Cuối</th>
+              <th class="px-6 py-4">Trạng Thái</th>
+              <th class="px-6 py-4 text-right">Thao Tác</th>
+            </tr>
+          </thead>
+          <tbody id="users-table-body" class="divide-y divide-slate-100">
+            <!-- Dynamic Users -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: SETTINGS & API KEYS -->
+  <div id="tab-settings" class="hidden space-y-6">
+    <div class="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm max-w-3xl space-y-6">
+      <div>
+        <h2 class="text-lg font-bold text-slate-800">Quỹ Google Gemini API Key Dùng Chung</h2>
+        <p class="text-xs text-slate-500 mt-1">
+          Nhập các API Key của trung tâm vào đây (mỗi dòng một key). Hệ thống sẽ tự động xoay tua đa luồng (Multi-Key Affinity) khi nhiều giáo viên cùng chuyển đổi, chống lỗi chạm hạn mức (Rate Limit 429).
+        </p>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-700 uppercase mb-2">Danh Sách API Keys (Mỗi dòng 1 key)</label>
+        <textarea id="setting-api-keys" rows="6"
+          placeholder="AQ.Ab8RN6IcqCml0NhvVkh8k9XZ9D43_...&#10;AQ.Ab8RN6Ijpjog3zQzTwYN6tPodT_...&#10;AIzaSy..."
+          class="w-full font-mono text-xs p-4 rounded-2xl border border-slate-200 focus:border-sky-500 focus:ring-2 focus:ring-sky-200 outline-none transition">{{ settings.api_keys|join('\n') }}</textarea>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-2">Mô hình AI (Model)</label>
+          <select id="setting-model" class="w-full p-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 outline-none focus:border-sky-500">
+            <option value="gemini-2.5-flash" {% if settings.model == 'gemini-2.5-flash' %}selected{% endif %}>Gemini 2.5 Flash (Khuyên dùng - Nhanh & Chuẩn)</option>
+            <option value="gemini-3.5-flash-lite" {% if settings.model == 'gemini-3.5-flash-lite' %}selected{% endif %}>Gemini 3.5 Flash Lite (Siêu tốc)</option>
+            <option value="gemini-1.5-pro" {% if settings.model == 'gemini-1.5-pro' %}selected{% endif %}>Gemini 1.5 Pro (Độ sâu học thuật cao nhất)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-2">Số luồng song song tối đa (Workers)</label>
+          <input type="number" id="setting-workers" min="1" max="10" value="{{ settings.concurrent_workers or 3 }}"
+            class="w-full p-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 outline-none focus:border-sky-500">
+        </div>
+      </div>
+
+      <button type="button" onclick="saveSettings()"
+        class="py-3 px-6 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-md shadow-sky-600/20 transition">
+        Lưu Cấu Hình Hệ Thống
+      </button>
+    </div>
+  </div>
+
+  <!-- TAB 3: HISTORY -->
+  <div id="tab-history" class="hidden space-y-6">
+    <div class="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs text-slate-600">
+          <thead class="bg-slate-50 text-slate-400 font-bold uppercase border-b border-slate-200">
+            <tr>
+              <th class="px-6 py-4">Tên File</th>
+              <th class="px-6 py-4">Người Thực Hiện</th>
+              <th class="px-6 py-4">Số Trang</th>
+              <th class="px-6 py-4">Thời Gian</th>
+              <th class="px-6 py-4">Trạng Thái</th>
+              <th class="px-6 py-4 text-right">Tải Về</th>
+            </tr>
+          </thead>
+          <tbody id="global-history-body" class="divide-y divide-slate-100">
+            <!-- Dynamic History -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal Thêm Người Dùng -->
+<div id="modal-add-user" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-5 shadow-2xl">
+    <div class="flex items-center justify-between">
+      <h3 class="text-base font-extrabold text-slate-800">Cấp Tài Khoản Mới</h3>
+      <button onclick="closeAddUserModal()" class="text-slate-400 hover:text-slate-600">✕</button>
+    </div>
+
+    <form onsubmit="handleCreateUser(event)" class="space-y-4 text-xs">
+      <div>
+        <label class="block font-bold text-slate-700 uppercase mb-1">Tên đăng nhập (username)</label>
+        <input type="text" id="new-username" required placeholder="vi_du: gv_toan_nam"
+          class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-sky-500 font-medium">
+      </div>
+
+      <div>
+        <label class="block font-bold text-slate-700 uppercase mb-1">Họ và tên giáo viên</label>
+        <input type="text" id="new-fullname" placeholder="Thầy Nguyễn Văn Nam"
+          class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-sky-500 font-medium">
+      </div>
+
+      <div>
+        <label class="block font-bold text-slate-700 uppercase mb-1">Mật khẩu ban đầu</label>
+        <input type="password" id="new-password" required placeholder="Ít nhất 6 ký tự"
+          class="w-full p-3 rounded-xl border border-slate-200 outline-none focus:border-sky-500 font-medium">
+      </div>
+
+      <div>
+        <label class="block font-bold text-slate-700 uppercase mb-1">Quyền hạn</label>
+        <select id="new-role" class="w-full p-3 rounded-xl border border-slate-200 font-bold text-slate-700 outline-none">
+          <option value="teacher">👨‍🏫 Giáo viên (User)</option>
+          <option value="admin">👑 Quản trị viên (Admin)</option>
+        </select>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 pt-3">
+        <button type="button" onclick="closeAddUserModal()" class="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl">Hủy</button>
+        <button type="submit" class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl shadow-md transition">Tạo Tài Khoản</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function switchTab(tab) {
+    ['users', 'settings', 'history'].forEach(t => {
+      document.getElementById(`tab-${t}`).classList.add('hidden');
+      const btn = document.getElementById(`tab-btn-${t}`);
+      btn.classList.remove('border-sky-600', 'text-sky-600');
+      btn.classList.add('border-transparent', 'text-slate-500');
+    });
+
+    document.getElementById(`tab-${tab}`).classList.remove('hidden');
+    const activeBtn = document.getElementById(`tab-btn-${tab}`);
+    activeBtn.classList.remove('border-transparent', 'text-slate-500');
+    activeBtn.classList.add('border-sky-600', 'text-sky-600');
+
+    if (tab === 'users') loadUsers();
+    if (tab === 'history') loadGlobalHistory();
+  }
+
+  // Load Users
+  async function loadUsers() {
+    try {
+      const res = await fetch("/api/admin/users");
+      const data = await res.json();
+      const tbody = document.getElementById("users-table-body");
+      document.getElementById("stat-users").textContent = data.users.length;
+
+      tbody.innerHTML = data.users.map(u => `
+        <tr class="hover:bg-slate-50/70 transition">
+          <td class="px-6 py-4 font-bold text-slate-800">${u.username}</td>
+          <td class="px-6 py-4 font-medium">${u.full_name || "-"}</td>
+          <td class="px-6 py-4">
+            <span class="px-2 py-0.5 rounded-full font-bold ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">
+              ${u.role === 'admin' ? 'Admin' : 'Giáo viên'}
+            </span>
+          </td>
+          <td class="px-6 py-4 font-bold text-slate-700">${u.task_count} file</td>
+          <td class="px-6 py-4 text-slate-400">${u.last_login}</td>
+          <td class="px-6 py-4">
+            <span class="px-2 py-0.5 rounded-full font-bold ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">
+              ${u.is_active ? 'Hoạt động' : 'Đã khóa'}
+            </span>
+          </td>
+          <td class="px-6 py-4 text-right space-x-2">
+            <button onclick="toggleUserActive(${u.id}, ${!u.is_active})" class="text-sky-600 hover:underline font-bold">
+              ${u.is_active ? 'Khóa' : 'Mở'}
+            </button>
+            <button onclick="resetPassword(${u.id})" class="text-indigo-600 hover:underline font-bold">Đổi MK</button>
+            <button onclick="deleteUser(${u.id}, '${u.username}')" class="text-red-500 hover:underline font-bold">Xóa</button>
+          </td>
+        </tr>
+      `).join("");
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // Modals
+  function openAddUserModal() { document.getElementById("modal-add-user").classList.remove('hidden'); }
+  function closeAddUserModal() { document.getElementById("modal-add-user").classList.add('hidden'); }
+
+  async function handleCreateUser(e) {
+    e.preventDefault();
+    const payload = {
+      username: document.getElementById("new-username").value,
+      full_name: document.getElementById("new-fullname").value,
+      password: document.getElementById("new-password").value,
+      role: document.getElementById("new-role").value
+    };
+
+    const res = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (res.ok) {
+      alert("Đã tạo tài khoản thành công!");
+      closeAddUserModal();
+      loadUsers();
+    } else {
+      alert("Lỗi: " + (data.detail || "Không thể tạo tài khoản."));
+    }
+  }
+
+  async function toggleUserActive(userId, newStatus) {
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: newStatus })
+    });
+    if (res.ok) loadUsers();
+    else {
+      const data = await res.json();
+      alert("Lỗi: " + data.detail);
+    }
+  }
+
+  async function resetPassword(userId) {
+    const newPass = prompt("Nhập mật khẩu mới cho tài khoản này (tối thiểu 6 ký tự):");
+    if (!newPass) return;
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_password: newPass })
+    });
+    if (res.ok) alert("Đã đổi mật khẩu thành công!");
+    else {
+      const data = await res.json();
+      alert("Lỗi: " + data.detail);
+    }
+  }
+
+  async function deleteUser(userId, username) {
+    if (!confirm(`Bạn có chắc chắn muốn xóa tài khoản "${username}"?`)) return;
+    const res = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+    if (res.ok) loadUsers();
+    else {
+      const data = await res.json();
+      alert("Lỗi: " + data.detail);
+    }
+  }
+
+  // Save Settings
+  async function saveSettings() {
+    const rawKeys = document.getElementById("setting-api-keys").value;
+    const keys = rawKeys.split("\n").map(k => k.trim()).filter(k => k);
+    const model = document.getElementById("setting-model").value;
+    const workers = parseInt(document.getElementById("setting-workers").value) || 3;
+
+    const res = await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_keys: keys,
+        model: model,
+        concurrent_workers: workers
+      })
+    });
+    if (res.ok) {
+      alert("Đã lưu cài đặt và cập nhật API Key thành công!");
+      document.getElementById("stat-keys").textContent = keys.length + " Keys";
+    } else {
+      alert("Có lỗi khi lưu cài đặt.");
+    }
+  }
+
+  // Global history
+  async function loadGlobalHistory() {
+    try {
+      const res = await fetch("/api/admin/history");
+      const data = await res.json();
+      const tbody = document.getElementById("global-history-body");
+      tbody.innerHTML = data.history.map(h => `
+        <tr class="hover:bg-slate-50/70 transition">
+          <td class="px-6 py-4 font-bold text-slate-800">${h.filename}</td>
+          <td class="px-6 py-4 font-semibold text-slate-700">${h.user} <span class="text-slate-400">(@${h.username})</span></td>
+          <td class="px-6 py-4">${h.total_pages} trang</td>
+          <td class="px-6 py-4 text-slate-400">${h.created_at}</td>
+          <td class="px-6 py-4">
+            <span class="px-2 py-0.5 rounded-full font-bold ${h.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">
+              ${h.status === 'completed' ? 'Thành công' : h.status}
+            </span>
+          </td>
+          <td class="px-6 py-4 text-right">
+            ${h.has_docx ? `
+              <a href="/api/tasks/${h.id}/download" target="_blank" class="text-sky-600 hover:underline font-bold">
+                Tải Word (.docx)
+              </a>
+            ` : '-'}
+          </td>
+        </tr>
+      `).join("");
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // Initial load
+  loadUsers();
+</script>
+{% endblock %}
