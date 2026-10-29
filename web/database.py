@@ -1,21 +1,37 @@
+import os
 import json
 from datetime import datetime
 from typing import Generator
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, ForeignKey
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from web.config import DATABASE_URL
+from web.config import DATABASE_URL, DATA_DIR
 
-# Chuẩn hóa connection string cho PostgreSQL (Render/Supabase cấp postgres:// thay vì postgresql://)
-db_url = DATABASE_URL
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(
-    db_url,
-    connect_args={"check_same_thread": False} if "sqlite" in db_url else {},
-    pool_pre_ping=True
-)
+def init_resilient_engine():
+    """Khởi tạo engine cơ sở dữ liệu có cơ chế tự phục hồi chống sập máy chủ."""
+    url = DATABASE_URL
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
 
+    if "sqlite" not in url:
+        try:
+            eng = create_engine(url, pool_pre_ping=True)
+            # Thử kết nối nhanh
+            with eng.connect():
+                pass
+            print(f"[DB INFO] Kết nối thành công cơ sở dữ liệu: {url.split('@')[-1] if '@' in url else 'PostgreSQL'}")
+            return eng
+        except Exception as e:
+            print(f"[DB WARNING] Không thể kết nối DB đám mây ({e}). Tự động fallback an toàn sang SQLite.")
+
+    sqlite_path = os.path.join(DATA_DIR, "wordscan.db")
+    return create_engine(
+        f"sqlite:///{sqlite_path}",
+        connect_args={"check_same_thread": False}
+    )
+
+
+engine = init_resilient_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
