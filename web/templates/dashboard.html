@@ -3,47 +3,70 @@
 {% block title %}Bàn Làm Việc - WordScan.me{% endblock %}
 
 {% block content %}
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+
+  <!-- Alert Banner nếu chưa có API Key -->
+  {% if not has_api_keys %}
+  <div class="bg-amber-50 border-2 border-amber-300 rounded-3xl p-5 text-amber-900 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-amber-200 text-amber-800 flex items-center justify-center font-bold text-lg flex-shrink-0">
+        ⚠️
+      </div>
+      <div>
+        <p class="font-extrabold text-sm text-amber-950">Hệ thống chưa được cài đặt Google Gemini API Key</p>
+        <p class="text-xs text-amber-800 mt-0.5">
+          Để bắt đầu bóc tách đề thi, Quản trị viên cần vào mục <strong>Quản Trị Trung Tâm</strong> $\rightarrow$ tab <strong>Cấu Hình API Key & Model</strong> để dán các key vào.
+        </p>
+      </div>
+    </div>
+    {% if user.role == 'admin' %}
+    <a href="/admin" class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow transition flex-shrink-0">
+      Vào Cấu Hình Key Ngay →
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <!-- Welcome Banner -->
   <div class="bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-sky-500/10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
     <div>
       <span class="inline-block px-3 py-1 bg-white/20 backdrop-blur-md rounded-full text-xs font-bold tracking-wide uppercase mb-2">
-        🚀 Số Hóa Tài Liệu Toán - KHTN
+        🚀 Số Hóa Sách & Đề Thi Toán - KHTN
       </span>
       <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">
         Xin chào, {{ user.full_name or user.username }}!
       </h1>
       <p class="mt-2 text-sky-100 text-sm max-w-2xl leading-relaxed">
-        Kéo thả file đề thi PDF hoặc ảnh scan bên dưới. Hệ thống AI sẽ tự động bóc tách công thức Toán chuẩn OMML, vẽ lại hình học vector và xuất file Word chuẩn in ấn.
+        Kéo thả file đề thi PDF hoặc ảnh scan bên dưới. Chọn dải trang cần làm và các chế độ bóc tách thông minh, hệ thống sẽ tự động xuất ra file Word chuẩn in ấn.
       </p>
     </div>
+    {% if user.role == 'admin' %}
     <div class="flex items-center gap-3">
-      {% if user.role == 'admin' %}
       <a href="/admin" class="px-5 py-2.5 bg-white text-indigo-700 font-bold text-sm rounded-xl hover:bg-slate-50 transition shadow-sm">
-        Quản Trị Hệ Thống →
+        👑 Quản Trị Trung Tâm →
       </a>
-      {% endif %}
     </div>
+    {% endif %}
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
     
-    <!-- LEFT: Upload & Options (Col span 2) -->
+    <!-- LEFT: Upload, Page Range & Full Options (Col span 2) -->
     <div class="lg:col-span-2 space-y-6">
 
-      <!-- Upload Box -->
       <div class="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-6">
-        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+        
+        <!-- STEP 1: Upload File -->
+        <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
           <span class="w-8 h-8 rounded-lg bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-sm">1</span>
-          Tải Lên File Cần Chuyển Đổi
+          Tải Lên File Cần Chuyển Đổi (PDF hoặc Ảnh)
         </h2>
 
         <div id="drop-zone"
           class="border-2 border-dashed border-slate-300 hover:border-sky-500 hover:bg-sky-50/50 rounded-2xl p-8 text-center cursor-pointer transition-all flex flex-col items-center justify-center group">
           <input type="file" id="file-input" class="hidden" accept=".pdf,.png,.jpg,.jpeg,.webp">
           
-          <div class="w-16 h-16 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <div class="w-16 h-16 rounded-2xl bg-sky-50 text-sky-600 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
             <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
           </div>
           
@@ -62,72 +85,202 @@
 
         <!-- Selected File Preview -->
         <div id="file-selected-box" class="hidden bg-sky-50/70 border border-sky-200 rounded-2xl p-4 flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold text-xs uppercase" id="file-ext-badge">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold text-xs uppercase flex-shrink-0" id="file-ext-badge">
               PDF
             </div>
-            <div>
-              <p class="text-sm font-bold text-slate-800 truncate max-w-xs sm:max-w-md" id="selected-filename">ten_file.pdf</p>
-              <p class="text-xs text-slate-500" id="selected-filesize">0 KB</p>
+            <div class="min-w-0">
+              <p class="text-sm font-bold text-slate-800 truncate" id="selected-filename">ten_file.pdf</p>
+              <div class="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+                <span id="selected-filesize">0 MB</span>
+                <span>•</span>
+                <span class="font-bold text-sky-700" id="selected-total-pages">Đang kiểm tra số trang...</span>
+              </div>
             </div>
           </div>
-          <button type="button" id="btn-remove-file" class="text-slate-400 hover:text-red-500 p-2">
+          <button type="button" id="btn-remove-file" class="text-slate-400 hover:text-red-500 p-2 flex-shrink-0" title="Chọn file khác">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
           </button>
         </div>
 
-        <!-- Options Form -->
-        <div class="space-y-4 pt-4 border-t border-slate-100">
+        <!-- STEP 2: Dải Trang Cần Xử Lý (Page Range Selector) -->
+        <div id="page-range-container" class="space-y-3 pt-4 border-t border-slate-100">
           <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
             <span class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm">2</span>
-            Tùy Chọn Chế Độ Số Hóa
+            Dải Trang Cần Chuyển Đổi
           </h3>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-              <input type="checkbox" id="opt-compact" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded focus:ring-sky-500">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            
+            <!-- Option A: Toàn bộ -->
+            <label class="flex items-start gap-3 p-3.5 rounded-2xl border-2 border-sky-500 bg-sky-50/40 cursor-pointer transition page-mode-card" id="card-mode-all">
+              <input type="radio" name="page_mode" value="all" checked class="mt-0.5 w-4 h-4 text-sky-600 focus:ring-sky-500" onchange="handlePageModeChange('all')">
               <div>
-                <p class="font-bold text-slate-800">Tiết kiệm giấy in (Compact)</p>
-                <p class="text-xs text-slate-500">Lề hẹp 0.7cm, Font 11pt, gom ý a, b dồn hàng</p>
+                <p class="font-extrabold text-slate-800 text-sm">Toàn bộ tài liệu</p>
+                <p class="text-slate-500 mt-0.5" id="label-all-pages-desc">Chuyển đổi tất cả các trang của file</p>
               </div>
             </label>
 
-            <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-              <input type="checkbox" id="opt-geometry" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded focus:ring-sky-500">
+            <!-- Option B: Chỉ đổi từ trang ? -> ? -->
+            <label class="flex items-start gap-3 p-3.5 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition page-mode-card" id="card-mode-custom">
+              <input type="radio" name="page_mode" value="custom" class="mt-0.5 w-4 h-4 text-sky-600 focus:ring-sky-500" onchange="handlePageModeChange('custom')">
               <div>
-                <p class="font-bold text-slate-800">AI vẽ lại hình học 3D & Đồ thị</p>
-                <p class="text-xs text-slate-500">Tái tạo vector 300 DPI chuẩn nét Bộ GD&ĐT</p>
+                <p class="font-extrabold text-slate-800 text-sm">Chỉ đổi từ trang ? $\rightarrow$ ?</p>
+                <p class="text-slate-500 mt-0.5">Tùy chọn đoạn trang bạn cần (Ví dụ: 1 đến 5)</p>
               </div>
             </label>
 
-            <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-              <input type="checkbox" id="opt-columns" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded focus:ring-sky-500">
-              <div>
-                <p class="font-bold text-slate-800">Tự động chia 2 cột dọc</p>
-                <p class="text-xs text-slate-500">Phát hiện dải ngăn cách, chống nhảy câu</p>
-              </div>
-            </label>
+          </div>
 
-            <label class="flex items-start gap-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-              <input type="checkbox" id="opt-enhance" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded focus:ring-sky-500">
-              <div>
-                <p class="font-bold text-slate-800">Tẩy trắng nền & Nắn méo ảnh</p>
-                <p class="text-xs text-slate-500">Khử góc chụp nghiêng điện thoại (Dewarp)</p>
+          <!-- Custom Page Range Input Box (Hidden by default, shown when custom selected) -->
+          <div id="custom-range-inputs" class="hidden p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3 text-xs">
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="font-bold text-slate-700">Chuyển đổi:</span>
+              <div class="flex items-center gap-2">
+                <span>Từ trang</span>
+                <input type="number" id="input-page-from" min="1" value="1"
+                  class="w-16 p-2 rounded-xl border border-slate-300 font-bold text-center outline-none focus:border-indigo-500 bg-white">
               </div>
-            </label>
+              <div class="flex items-center gap-2">
+                <span>Đến trang</span>
+                <input type="number" id="input-page-to" min="1" value="1"
+                  class="w-16 p-2 rounded-xl border border-slate-300 font-bold text-center outline-none focus:border-indigo-500 bg-white">
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 pt-1 border-t border-indigo-100">
+              <span class="text-slate-500">Hoặc nhập dải tự do:</span>
+              <input type="text" id="input-page-range-str" placeholder="Ví dụ: 1-5, 8, 10-15"
+                class="flex-1 p-2 rounded-xl border border-slate-300 font-mono text-xs outline-none focus:border-indigo-500 bg-white">
+            </div>
+            <p class="text-[11px] text-indigo-700 italic">
+              💡 Mẹo: Chọn dải trang nhỏ (khoảng 5-10 trang) sẽ giúp tốc độ bóc tách nhanh gấp nhiều lần và tiết kiệm hạn mức API.
+            </p>
+          </div>
+        </div>
+
+        <!-- STEP 3: Toàn Bộ Các Tính Năng Gốc (Full Feature Set) -->
+        <div class="space-y-4 pt-4 border-t border-slate-100">
+          <h3 class="text-sm font-bold text-slate-800 flex items-center justify-between">
+            <span class="flex items-center gap-2">
+              <span class="w-8 h-8 rounded-lg bg-purple-100 text-purple-600 flex items-center justify-center font-bold text-sm">3</span>
+              Tùy Chọn Chế Độ Số Hóa & Định Dạng Toàn Diện
+            </span>
+          </h3>
+
+          <div class="space-y-4">
+            
+            <!-- Nhóm A: Bố cục & In Ấn -->
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">📐 Bố Cục & Tối Ưu In Ấn</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-compact" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Tiết kiệm giấy in (Compact)</p>
+                    <p class="text-slate-500 text-[11px]">Lề hẹp 0.7cm, Font 11pt, gom ý a, b dồn hàng</p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-columns" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Tự động bóc tách 2 cột dọc</p>
+                    <p class="text-slate-500 text-[11px]">Cắt đôi trang scan 2 cột, chống nhảy câu</p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-smart-layout" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Bố cục thông minh (Fluid Layout)</p>
+                    <p class="text-slate-500 text-[11px]">Đặt hình minh họa song song bên phải câu hỏi</p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-format-mc" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Bảng trắc nghiệm 4 cột / 2 cột</p>
+                    <p class="text-slate-500 text-[11px]">Tự động căn chỉnh phương án A, B, C, D</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Nhóm B: Hình Ảnh & AI Artist -->
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">🎨 Hình Học & Xử Lý Ảnh</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-geometry" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Họa sĩ AI vẽ lại hình 3D & Đồ thị</p>
+                    <p class="text-slate-500 text-[11px]">Tái tạo vector 300 DPI, phân biệt nét đứt/liền</p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-enhance" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Tẩy trắng nền & Nắn méo ảnh (Dewarp)</p>
+                    <p class="text-slate-500 text-[11px]">Khử góc chụp nghiêng 4-point perspective</p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-detect-images" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Hút viền hình vẽ & Lọc hình rác</p>
+                    <p class="text-slate-500 text-[11px]">Contour Snapping không cắt lẹm đỉnh A, B, C</p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-normalize-gemini" checked class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Deep Math Sanitizer</p>
+                    <p class="text-slate-500 text-[11px]">Chuẩn hóa $Oxyz$, góc $\widehat{ABC}$, độ $^\circ$, phân số</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Nhóm C: Tương thích phần mềm trộn đề -->
+            <div>
+              <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">🏷️ Trộn Đề & Định Dạng Khác</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-mcmix" class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Tương thích McMix / SmartTest</p>
+                    <p class="text-slate-500 text-[11px]">Giữ nguyên tag [NB], [TH], gạch chân đáp án đúng</p>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                  <input type="checkbox" id="opt-export-tex" class="mt-0.5 w-4 h-4 text-sky-600 rounded">
+                  <div>
+                    <p class="font-bold text-slate-800">Xuất file LaTeX (.tex)</p>
+                    <p class="text-slate-500 text-[11px]">Tạo song song file .tex cho Overleaf / TeXmaker</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+
           </div>
         </div>
 
         <!-- Action Button -->
         <button type="button" id="btn-start-convert" disabled
-          class="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-base shadow-lg shadow-sky-500/20 transition-all flex items-center justify-center gap-2">
+          class="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 hover:from-sky-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-base shadow-lg shadow-sky-500/20 transition-all flex items-center justify-center gap-2">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
           Bắt Đầu Số Hóa Sang Word (.docx)
         </button>
 
       </div>
 
-      <!-- Realtime Processing Status Card (Hidden by default) -->
+      <!-- Realtime Processing Status Card -->
       <div id="processing-box" class="hidden bg-white rounded-3xl p-6 sm:p-8 border border-sky-200 shadow-lg shadow-sky-500/5 space-y-6">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
@@ -197,11 +350,11 @@
           </li>
           <li class="flex items-start gap-2">
             <svg class="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-            <span><strong>Tương thích McMix:</strong> Giữ nguyên nhãn trắc nghiệm A., B., C., D. và đáp án đúng để đảo đề thi.</span>
+            <span><strong>Chống nhảy câu 2 cột:</strong> Bóc tách tuần tự nửa trái sang nửa phải chuẩn xác 100%.</span>
           </li>
           <li class="flex items-start gap-2">
             <svg class="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-            <span><strong>Hình học 3D sắc nét:</strong> Tự động nhận diện nét đứt, nét liền, chân đường cao và xuất vector 300 DPI.</span>
+            <span><strong>Họa sĩ AI 3D:</strong> Vẽ lại hình học không gian, phân biệt cạnh khuất nét đứt và nét liền 300 DPI.</span>
           </li>
         </ul>
       </div>
@@ -210,7 +363,7 @@
       <div class="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-extrabold text-slate-800">Tài Liệu Gần Đây Của Bạn</h3>
-          <button type="button" onclick="loadHistory()" class="text-xs text-sky-600 hover:underline">Làm mới</button>
+          <button type="button" onclick="loadHistory()" class="text-xs text-sky-600 hover:underline font-bold">Làm mới</button>
         </div>
 
         <div id="history-container" class="space-y-3">
@@ -222,9 +375,17 @@
                 <div class="flex items-center gap-2 mt-1 text-slate-400">
                   <span>{{ t.created_at.strftime('%d/%m %H:%M') }}</span>
                   <span>•</span>
-                  <span class="{% if t.status == 'completed' %}text-emerald-600 font-bold{% elif t.status == 'failed' %}text-red-500{% else %}text-amber-500{% endif %}">
-                    {% if t.status == 'completed' %}Thành công{% elif t.status == 'failed' %}Thất bại{% elif t.status == 'processing' %}Đang chạy{% else %}Chờ{% endif %}
-                  </span>
+                  {% if t.status == 'completed' %}
+                    <span class="text-emerald-600 font-bold">Thành công</span>
+                  {% elif t.status == 'failed' %}
+                    <button onclick="showErrorModal('{{ t.error_message|replace("'", "\\'")|replace('"', '\\"') if t.error_message else 'Lỗi xử lý tài liệu.' }}')" class="text-red-500 font-bold hover:underline cursor-pointer flex items-center gap-1">
+                      Thất bại ❓
+                    </button>
+                  {% elif t.status == 'processing' %}
+                    <span class="text-amber-500 font-bold">Đang chạy</span>
+                  {% else %}
+                    <span class="text-slate-500">Chờ</span>
+                  {% endif %}
                 </div>
               </div>
 
@@ -247,11 +408,31 @@
   </div>
 
 </div>
+
+<!-- Modal Chi Tiết Lỗi -->
+<div id="modal-error" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-4 shadow-2xl border border-red-100">
+    <div class="flex items-center gap-3 text-red-600">
+      <div class="w-10 h-10 rounded-2xl bg-red-100 flex items-center justify-center font-bold text-lg">✕</div>
+      <h3 class="text-base font-extrabold text-slate-800">Chi Tiết Lỗi Xử Lý</h3>
+    </div>
+    <div class="bg-red-50/70 border border-red-200 rounded-2xl p-4 text-xs font-mono text-red-800 max-h-48 overflow-y-auto" id="error-modal-text">
+      Nội dung lỗi...
+    </div>
+    <div class="flex justify-end pt-2">
+      <button type="button" onclick="closeErrorModal()" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl transition">
+        Đóng
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
   let currentFile = null;
+  let currentUploadedTaskId = null;
+  let currentFileTotalPages = 1;
   let activeTaskId = null;
   let pollInterval = null;
 
@@ -260,9 +441,18 @@
   const fileSelectedBox = document.getElementById("file-selected-box");
   const selectedFilename = document.getElementById("selected-filename");
   const selectedFilesize = document.getElementById("selected-filesize");
+  const selectedTotalPages = document.getElementById("selected-total-pages");
   const fileExtBadge = document.getElementById("file-ext-badge");
   const btnRemoveFile = document.getElementById("btn-remove-file");
   const btnStartConvert = document.getElementById("btn-start-convert");
+
+  const inputPageFrom = document.getElementById("input-page-from");
+  const inputPageTo = document.getElementById("input-page-to");
+  const inputPageRangeStr = document.getElementById("input-page-range-str");
+  const customRangeInputs = document.getElementById("custom-range-inputs");
+  const cardModeAll = document.getElementById("card-mode-all");
+  const cardModeCustom = document.getElementById("card-mode-custom");
+  const labelAllPagesDesc = document.getElementById("label-all-pages-desc");
 
   const processingBox = document.getElementById("processing-box");
   const currentTaskFilename = document.getElementById("current-task-filename");
@@ -274,6 +464,23 @@
   const btnCancelTask = document.getElementById("btn-cancel-task");
   const terminalLogs = document.getElementById("terminal-logs");
   const statusSpinner = document.getElementById("status-spinner");
+
+  // Page mode radio handler
+  function handlePageModeChange(mode) {
+    if (mode === 'custom') {
+      customRangeInputs.classList.remove('hidden');
+      cardModeCustom.classList.add('border-sky-500', 'bg-sky-50/40', 'border-2');
+      cardModeCustom.classList.remove('border-slate-200');
+      cardModeAll.classList.remove('border-sky-500', 'bg-sky-50/40', 'border-2');
+      cardModeAll.classList.add('border-slate-200');
+    } else {
+      customRangeInputs.classList.add('hidden');
+      cardModeAll.classList.add('border-sky-500', 'bg-sky-50/40', 'border-2');
+      cardModeAll.classList.remove('border-slate-200');
+      cardModeCustom.classList.remove('border-sky-500', 'bg-sky-50/40', 'border-2');
+      cardModeCustom.classList.add('border-slate-200');
+    }
+  }
 
   // Drag and drop handlers
   ['dragenter', 'dragover'].forEach(eventName => {
@@ -299,7 +506,7 @@
     if (fileInput.files.length) handleFileSelected(fileInput.files[0]);
   });
 
-  function handleFileSelected(file) {
+  async function handleFileSelected(file) {
     currentFile = file;
     selectedFilename.textContent = file.name;
     selectedFilesize.textContent = (file.size / 1024 / 1024).toFixed(2) + " MB";
@@ -308,29 +515,11 @@
 
     dropZone.classList.add('hidden');
     fileSelectedBox.classList.remove('hidden');
-    btnStartConvert.disabled = false;
-  }
-
-  btnRemoveFile.addEventListener('click', () => {
-    currentFile = null;
-    fileInput.value = "";
-    fileSelectedBox.classList.add('hidden');
-    dropZone.classList.remove('hidden');
     btnStartConvert.disabled = true;
-  });
+    selectedTotalPages.textContent = "Đang tải file lên & đọc số trang...";
 
-  // Start conversion
-  btnStartConvert.addEventListener('click', async () => {
-    if (!currentFile) return;
-
-    btnStartConvert.disabled = true;
-    btnStartConvert.innerHTML = `
-      <svg class="animate-spin w-5 h-5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-      Đang tải file lên...
-    `;
-
+    // Upload ngay để lấy task_id và số trang chính xác
     try {
-      // 1. Upload file
       const formData = new FormData();
       formData.append("file", currentFile);
 
@@ -341,16 +530,62 @@
       const upData = await upRes.json();
       if (!upRes.ok) throw new Error(upData.detail || "Không thể tải file lên.");
 
-      activeTaskId = upData.task_id;
+      currentUploadedTaskId = upData.task_id;
+      currentFileTotalPages = upData.total_pages || 1;
 
-      // 2. Start conversion with options
+      selectedTotalPages.textContent = `Tổng cộng: ${currentFileTotalPages} trang`;
+      labelAllPagesDesc.textContent = `Chuyển đổi toàn bộ tất cả ${currentFileTotalPages} trang`;
+      
+      inputPageFrom.value = 1;
+      inputPageTo.max = currentFileTotalPages;
+      inputPageTo.value = Math.min(5, currentFileTotalPages); // Mặc định gợi ý 5 trang đầu
+
+      btnStartConvert.disabled = false;
+    } catch (err) {
+      alert("Lỗi tải file: " + err.message);
+      btnRemoveFile.click();
+    }
+  }
+
+  btnRemoveFile.addEventListener('click', () => {
+    currentFile = null;
+    currentUploadedTaskId = null;
+    currentFileTotalPages = 1;
+    fileInput.value = "";
+    fileSelectedBox.classList.add('hidden');
+    dropZone.classList.remove('hidden');
+    btnStartConvert.disabled = true;
+  });
+
+  // Start conversion
+  btnStartConvert.addEventListener('click', async () => {
+    if (!currentUploadedTaskId) return;
+
+    btnStartConvert.disabled = true;
+    btnStartConvert.innerHTML = `
+      <svg class="animate-spin w-5 h-5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+      Đang khởi động chuyển đổi...
+    `;
+
+    try {
+      activeTaskId = currentUploadedTaskId;
+
+      const pageMode = document.querySelector('input[name="page_mode"]:checked').value;
       const options = {
+        page_mode: pageMode,
+        page_from: parseInt(inputPageFrom.value) || 1,
+        page_to: parseInt(inputPageTo.value) || currentFileTotalPages,
+        page_range: inputPageRangeStr.value.trim() || `${inputPageFrom.value}-${inputPageTo.value}`,
         compact_paper_saver: document.getElementById("opt-compact").checked,
         ai_geometry_redraw: document.getElementById("opt-geometry").checked,
         auto_detect_columns: document.getElementById("opt-columns").checked,
         enhance_scans: document.getElementById("opt-enhance").checked,
-        format_multiple_choice: true,
-        smart_layout: true
+        smart_layout: document.getElementById("opt-smart-layout").checked,
+        format_multiple_choice: document.getElementById("opt-format-mc").checked,
+        detect_and_insert_images: document.getElementById("opt-detect-images").checked,
+        normalize_gemini: document.getElementById("opt-normalize-gemini").checked,
+        mcmix_compat: document.getElementById("opt-mcmix").checked,
+        export_tex: document.getElementById("opt-export-tex").checked
       };
 
       const startRes = await fetch(`/api/tasks/${activeTaskId}/start`, {
@@ -363,7 +598,7 @@
 
       // Show processing card
       processingBox.classList.remove('hidden');
-      currentTaskFilename.textContent = currentFile.name;
+      currentTaskFilename.textContent = currentFile ? currentFile.name : "Tài liệu";
       btnDownloadDocx.classList.add('hidden');
       btnCancelTask.classList.remove('hidden');
       terminalLogs.innerHTML = "";
@@ -468,29 +703,51 @@
         container.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Chưa có tài liệu nào.</p>';
         return;
       }
-      container.innerHTML = data.history.map(t => `
-        <div class="p-3 rounded-2xl border border-slate-100 hover:border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3 text-xs">
-          <div class="min-w-0 flex-1">
-            <p class="font-bold text-slate-800 truncate">${t.filename}</p>
-            <div class="flex items-center gap-2 mt-1 text-slate-400">
-              <span>${t.created_at}</span>
-              <span>•</span>
-              <span class="${t.status === 'completed' ? 'text-emerald-600 font-bold' : (t.status === 'failed' ? 'text-red-500' : 'text-amber-500')}">
-                ${t.status === 'completed' ? 'Thành công' : (t.status === 'failed' ? 'Thất bại' : 'Đang xử lý')}
-              </span>
+      container.innerHTML = data.history.map(t => {
+        let statusBadge = "";
+        if (t.status === 'completed') {
+          statusBadge = '<span class="text-emerald-600 font-bold">Thành công</span>';
+        } else if (t.status === 'failed') {
+          const errMsg = (t.error_message || "Lỗi xử lý tài liệu.").replace(/'/g, "\\'").replace(/"/g, '&quot;');
+          statusBadge = `<button onclick="showErrorModal('${errMsg}')" class="text-red-500 font-bold hover:underline cursor-pointer flex items-center gap-1">Thất bại ❓</button>`;
+        } else if (t.status === 'processing') {
+          statusBadge = '<span class="text-amber-500 font-bold">Đang chạy</span>';
+        } else {
+          statusBadge = '<span class="text-slate-500">Chờ</span>';
+        }
+
+        return `
+          <div class="p-3 rounded-2xl border border-slate-100 hover:border-slate-200 bg-slate-50/50 flex items-center justify-between gap-3 text-xs">
+            <div class="min-w-0 flex-1">
+              <p class="font-bold text-slate-800 truncate">${t.filename}</p>
+              <div class="flex items-center gap-2 mt-1 text-slate-400">
+                <span>${t.created_at}</span>
+                <span>•</span>
+                ${statusBadge}
+              </div>
             </div>
+            ${t.has_docx ? `
+              <a href="/api/tasks/${t.id}/download" target="_blank"
+                class="p-2 rounded-xl bg-sky-100 text-sky-700 hover:bg-sky-200 font-bold transition flex-shrink-0" title="Tải file Word">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+              </a>
+            ` : ''}
           </div>
-          ${t.has_docx ? `
-            <a href="/api/tasks/${t.id}/download" target="_blank"
-              class="p-2 rounded-xl bg-sky-100 text-sky-700 hover:bg-sky-200 font-bold transition flex-shrink-0" title="Tải file Word">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-            </a>
-          ` : ''}
-        </div>
-      `).join("");
+        `;
+      }).join("");
     } catch (e) {
       console.error(e);
     }
+  }
+
+  // Error modal
+  function showErrorModal(msg) {
+    document.getElementById("error-modal-text").textContent = msg;
+    document.getElementById("modal-error").classList.remove('hidden');
+  }
+
+  function closeErrorModal() {
+    document.getElementById("modal-error").classList.add('hidden');
   }
 </script>
 {% endblock %}
