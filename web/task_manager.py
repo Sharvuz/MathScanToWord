@@ -21,7 +21,7 @@ ACTIVE_WORKERS: Dict[str, bool] = {}  # task_id -> is_running flag
 
 
 def get_system_settings() -> dict:
-    """Load settings from DB or fall back to config.json."""
+    """Load settings from DB or fall back to config.json or environment."""
     settings = {
         "api_keys": [],
         "model": "gemini-2.5-flash",
@@ -29,13 +29,16 @@ def get_system_settings() -> dict:
         "concurrent_workers": 3,
         "options": {
             "create_word": True,
+            "normalize_gemini": True,
             "compact_paper_saver": True,
             "ai_geometry_redraw": True,
             "detect_and_insert_images": True,
             "auto_detect_columns": True,
             "enhance_scans": True,
             "format_multiple_choice": True,
-            "smart_layout": True
+            "smart_layout": True,
+            "mcmix_compat": False,
+            "export_tex": False
         }
     }
 
@@ -49,6 +52,12 @@ def get_system_settings() -> dict:
         except Exception as e:
             logger.warning(f"Không thể đọc config.json: {e}")
 
+    # Fallback to Environment Variables
+    if os.environ.get("GEMINI_API_KEYS"):
+        env_keys = [k.strip() for k in os.environ.get("GEMINI_API_KEYS").split(",") if k.strip()]
+        if env_keys:
+            settings["api_keys"] = env_keys
+
     # Override from Database if present
     db = SessionLocal()
     try:
@@ -56,7 +65,7 @@ def get_system_settings() -> dict:
         if db_keys and db_keys.value:
             try:
                 parsed_keys = json.loads(db_keys.value)
-                if parsed_keys:
+                if parsed_keys and len(parsed_keys) > 0:
                     settings["api_keys"] = parsed_keys
             except Exception:
                 pass
@@ -93,7 +102,7 @@ class TaskWorker:
         }
         logs = task.get_logs()
         logs.append(log_entry)
-        task.set_logs(logs[-500:])  # Giữ tối đa 500 log mới nhất
+        task.set_logs(logs[-500:])
         task.current_step = message[:250]
         try:
             self.db.commit()
@@ -109,17 +118,18 @@ class TaskWorker:
 
             task.status = "processing"
             task.progress = 5
-            self.emit_log(task, f"🚀 Bắt đầu xử lý file: {task.original_filename}")
+            self.emit_log(task, f"🚀 Bắt đầu tiếp nhận file: {task.original_filename}")
 
             sys_settings = get_system_settings()
             opts = task.get_options()
-            # Merge system default options with task-specific options
             merged_opts = dict(sys_settings.get("options", {}))
             merged_opts.update(opts)
 
             api_keys = sys_settings.get("api_keys", [])
             if not api_keys:
-                raise ValueError("Hệ thống chưa được cấu hình Google Gemini API Key. Vui lòng liên hệ Admin để thêm API Key.")
+                raise ValueError(
+                    "Hệ thống chưa được cấu hình Google Gemini API Key. Quản trị viên vui lòng vào mục 'Quản Trị Trung Tâm' -> 'Cấu Hình API Key & Model' để nhập key."
+                )
 
             model = sys_settings.get("model", "gemini-2.5-flash")
             threshold = float(sys_settings.get("slow_threshold_seconds", 30))
@@ -130,6 +140,7 @@ class TaskWorker:
             from core.image_cropper import ImageCropper
             from core.word_builder import WordBuilder
             from core.cache_manager import CacheManager
+            from core.latex_formatter import LatexFormatter
 
             doc_dir = os.path.join(DATA_DIR, "cache", f"task_{self.task_id}")
             os.makedirs(doc_dir, exist_ok=True)
@@ -145,21 +156,42 @@ class TaskWorker:
             file_path = task.file_path
             is_pdf = task.file_type == "pdf" or file_path.lower().endswith(".pdf")
 
-            # 1. Xác định số trang & render ảnh
+            # 1. Xác định số trang & dải trang cần xử lý (Page Range Selector)
             pages_to_process = []
             if is_pdf:
                 doc_info = PDFProcessor.get_pdf_page_count(file_path)
                 total_p = doc_info if isinstance(doc_info, int) else len(doc_info)
                 task.total_pages = total_p
-                pages_to_process = list(range(1, total_p + 1))
+
+                page_mode = merged_opts.get("page_mode", "all")
+                if page_mode == "custom":
+                    p_from = merged_opts.get("page_from")
+                    p_to = merged_opts.get("page_to")
+                    p_range_str = merged_opts.get("page_range", "")
+
+                    if p_from is not None and p_to is not None and int(p_from) > 0 and int(p_to) > 0:
+                        range_str = f"{p_from}-{p_to}"
+                    elif p_range_str and p_range_str.strip():
+                        range_str = str(p_range_str).strip()
+                    else:
+                        range_str = "all"
+
+                    pages_to_process = PDFProcessor.parse_page_ranges(range_str, total_p)
+                else:
+                    pages_to_process = list(range(1, total_p + 1))
+
+                if not pages_to_process:
+                    pages_to_process = list(range(1, total_p + 1))
             else:
                 task.total_pages = 1
                 pages_to_process = [1]
-            
+
             self.db.commit()
 
-            self.emit_log(task, f"Đang chuẩn bị kết xuất {len(pages_to_process)} trang...")
+            range_summary = f"{pages_to_process[0]}-{pages_to_process[-1]}" if len(pages_to_process) > 1 else f"{pages_to_process[0]}"
+            self.emit_log(task, f"📑 Đã chọn xử lý {len(pages_to_process)} trang (Dải trang: {range_summary} trên tổng số {task.total_pages} trang).")
 
+            # 2. Render ảnh các trang
             for p_num in pages_to_process:
                 if not ACTIVE_WORKERS.get(self.task_id, True):
                     self.emit_log(task, "Tiến trình đã bị dừng bởi người dùng.", "warning")
@@ -182,10 +214,10 @@ class TaskWorker:
                             img = ImagePreprocessor.cv2_to_pil(cv_img)
                         img.save(p_img_path, "PNG")
 
-            # 2. Xử lý các trang (OCR + AI Detection)
+            # 3. Xử lý các trang (OCR + Gemini Vision + AI Figure + 2-Column Split)
             configured_workers = int(sys_settings.get("concurrent_workers", 3))
             num_workers = max(1, min(len(api_keys), configured_workers, len(pages_to_process)))
-            self.emit_log(task, f"⚡ Chạy bóc tách song song {num_workers} luồng với Gemini Vision...")
+            self.emit_log(task, f"⚡ Chạy bóc tách song song {num_workers} luồng với Gemini Vision ({model})...")
 
             completed_count = 0
             page_results = {}
@@ -203,11 +235,63 @@ class TaskWorker:
                     p_figs = cached.get("figures", [])
                 else:
                     page_img = Image.open(page_img_path).convert("RGB")
-                    resp_data = engine.process_page_image(page_img, p_num, preferred_key_idx=worker_idx)
-                    p_text = resp_data.get("markdown", "")
-                    raw_figs = resp_data.get("figures", [])
 
-                    # Cắt hình
+                    # Kiểm tra phát hiện bố cục 2 cột dọc (Two-Column Splitter)
+                    is_2col = False
+                    split_x = None
+                    if merged_opts.get("auto_detect_columns", True):
+                        cv_page = ImagePreprocessor.pil_to_cv2(page_img)
+                        is_2col, split_x = ImagePreprocessor.detect_two_column_layout(cv_page)
+
+                    if is_2col and split_x:
+                        self.emit_log(task, f"[Trang {p_num}] 📖 Phát hiện bố cục 2 cột (vách ngăn x={split_x}). Bóc tách Nửa trái -> Nửa phải...")
+                        col_l, col_r, split_x = ImagePreprocessor.split_two_columns(page_img, split_x)
+                        resp_l = engine.process_page_image(col_l, p_num, preferred_key_idx=worker_idx)
+                        resp_r = engine.process_page_image(col_r, p_num, preferred_key_idx=worker_idx)
+
+                        md_l = resp_l.get("markdown", "").strip()
+                        md_r = resp_r.get("markdown", "").strip()
+                        figs_l = resp_l.get("figures", [])
+                        figs_r = resp_r.get("figures", [])
+
+                        w_full, h_full = page_img.size
+                        w_l = split_x + 10
+                        x_r_start = max(0, split_x - 10)
+                        w_r = w_full - x_r_start
+
+                        raw_figs = []
+                        for fig in figs_l:
+                            ymin, xmin, ymax, xmax = fig.get("box_2d", [0, 0, 1000, 1000])
+                            xmin_mapped = int((xmin / 1000.0) * w_l / w_full * 1000)
+                            xmax_mapped = int((xmax / 1000.0) * w_l / w_full * 1000)
+                            fig["box_2d"] = [ymin, max(0, xmin_mapped), ymax, min(1000, xmax_mapped)]
+                            raw_figs.append(fig)
+
+                        l_count = len(figs_l)
+                        for r_idx, fig in enumerate(figs_r, 1):
+                            old_id = fig.get("id", f"HINH_{r_idx}")
+                            new_id = f"HINH_{l_count + r_idx}"
+                            fig["id"] = new_id
+                            md_r = md_r.replace(f"[{old_id}]", f"[{new_id}]")
+                            ymin, xmin, ymax, xmax = fig.get("box_2d", [0, 0, 1000, 1000])
+                            xmin_px = x_r_start + (xmin / 1000.0) * w_r
+                            xmax_px = x_r_start + (xmax / 1000.0) * w_r
+                            xmin_mapped = int((xmin_px / w_full) * 1000)
+                            xmax_mapped = int((xmax_px / w_full) * 1000)
+                            fig["box_2d"] = [ymin, max(0, xmin_mapped), ymax, min(1000, xmax_mapped)]
+                            raw_figs.append(fig)
+
+                        p_text = f"{md_l}\n\n{md_r}" if md_l and md_r else (md_l or md_r)
+                    else:
+                        resp_data = engine.process_page_image(page_img, p_num, preferred_key_idx=worker_idx)
+                        p_text = resp_data.get("markdown", "")
+                        raw_figs = resp_data.get("figures", [])
+
+                    # Chuẩn hóa công thức toán Deep Math Sanitizer
+                    if merged_opts.get("normalize_gemini", True):
+                        p_text = LatexFormatter.normalize_gemini_markdown(p_text)
+
+                    # Cắt hình ảnh và AI vẽ lại hình học
                     p_figs = []
                     if merged_opts.get("detect_and_insert_images", True):
                         for f_idx, fig in enumerate(raw_figs, 1):
@@ -218,13 +302,13 @@ class TaskWorker:
 
                             crop_path, refined_box = ImageCropper.crop_figure(page_img, box, crop_path, auto_refine=True)
                             is_blank, reject_reason = ImageCropper.is_blank_or_noise(crop_path)
-                            
-                            # AI vẽ lại hình học
+
+                            # AI vẽ lại hình học vector
                             if not is_blank and merged_opts.get("ai_geometry_redraw", True):
                                 desc = fig.get("description", "")
                                 from core.ai_figure_artist import AIGeometryArtist
                                 if AIGeometryArtist.is_likely_geometry(desc, context_text=p_text):
-                                    self.emit_log(task, f"[Trang {p_num}] 🎨 AI đang vẽ lại hình [{fig_id}]...")
+                                    self.emit_log(task, f"[Trang {p_num}] 🎨 AI đang vẽ lại hình [{fig_id}] vector chuẩn Bộ GD&ĐT...")
                                     target_redraw = os.path.join(doc_dir, f"page_{p_num:04d}_{fig_id}_ai_redraw.png")
                                     rd_res = AIGeometryArtist.redraw_figure(
                                         image_path=crop_path,
@@ -237,7 +321,7 @@ class TaskWorker:
                                     )
                                     if rd_res and os.path.exists(rd_res):
                                         crop_path = rd_res
-                                        self.emit_log(task, f"[Trang {p_num}] ✅ Đã vẽ lại hình [{fig_id}] vector sắc nét!", "success")
+                                        self.emit_log(task, f"[Trang {p_num}] ✅ Đã vẽ lại hình [{fig_id}] thành công (vector 300 DPI)!", "success")
 
                             if not is_blank:
                                 p_figs.append({
@@ -276,7 +360,7 @@ class TaskWorker:
                 self.db.commit()
                 return
 
-            # 3. Tạo tài liệu Word (.docx)
+            # 4. Tạo tài liệu Word (.docx)
             self.emit_log(task, "📄 Đang tổng hợp nội dung và tạo file Word (.docx) chuẩn OMML...")
             task.progress = 90
             self.db.commit()
@@ -317,7 +401,7 @@ class TaskWorker:
             task.status = "completed"
             task.progress = 100
             task.completed_at = datetime.utcnow()
-            self.emit_log(task, f"🎉 Chuyển đổi thành công! File Word đã sẵn sàng tải về.", "success")
+            self.emit_log(task, f"🎉 Chuyển đổi thành công {len(pages_to_process)} trang! File Word đã sẵn sàng tải về.", "success")
             self.db.commit()
 
         except Exception as e:
@@ -337,13 +421,11 @@ class TaskWorker:
 
 
 def submit_task(task_id: str):
-    """Spawns background worker thread for the given task."""
     worker = TaskWorker(task_id)
     thread = threading.Thread(target=worker.run, daemon=True)
     thread.start()
 
 
 def cancel_task(task_id: str):
-    """Signals a running task to cancel."""
     if task_id in ACTIVE_WORKERS:
         ACTIVE_WORKERS[task_id] = False

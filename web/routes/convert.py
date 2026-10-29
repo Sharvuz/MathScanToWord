@@ -2,28 +2,38 @@ import os
 import uuid
 import json
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, Request, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import pymupdf as fitz
 
 from web.database import get_db, User, Task
 from web.security import require_user, get_current_user_from_session
 from web.config import UPLOADS_DIR, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB
-from web.task_manager import submit_task, cancel_task
+from web.task_manager import submit_task, cancel_task, get_system_settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
 
 
 class TaskStartRequest(BaseModel):
+    page_mode: Optional[str] = "all"  # 'all' | 'custom'
+    page_from: Optional[int] = 1
+    page_to: Optional[int] = None
+    page_range: Optional[str] = "all"
     compact_paper_saver: bool = True
     ai_geometry_redraw: bool = True
     auto_detect_columns: bool = True
     enhance_scans: bool = True
     format_multiple_choice: bool = True
     smart_layout: bool = True
+    mcmix_compat: bool = False
+    export_tex: bool = False
+    normalize_gemini: bool = True
+    detect_and_insert_images: bool = True
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -41,12 +51,16 @@ async def dashboard_page(
 
     user_tasks = db.query(Task).filter(Task.user_id == current_user.id).order_by(Task.created_at.desc()).limit(20).all()
 
+    sys_settings = get_system_settings()
+    has_api_keys = bool(sys_settings.get("api_keys") and len(sys_settings["api_keys"]) > 0)
+
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
         context={
             "user": current_user,
-            "recent_tasks": user_tasks
+            "recent_tasks": user_tasks,
+            "has_api_keys": has_api_keys
         }
     )
 
@@ -80,6 +94,15 @@ async def upload_file(
         f.write(content)
 
     file_type = "pdf" if ext == "pdf" else "image"
+    total_pages = 1
+
+    if file_type == "pdf":
+        try:
+            doc = fitz.open(saved_path)
+            total_pages = len(doc)
+            doc.close()
+        except Exception:
+            total_pages = 1
 
     task = Task(
         id=task_id,
@@ -87,9 +110,10 @@ async def upload_file(
         original_filename=filename,
         file_type=file_type,
         file_path=saved_path,
+        total_pages=total_pages,
         status="pending",
         progress=0,
-        current_step="Đã tải file lên máy chủ thành công."
+        current_step=f"Đã tải file lên máy chủ thành công ({total_pages} trang)."
     )
     db.add(task)
     db.commit()
@@ -99,7 +123,8 @@ async def upload_file(
         "success": True,
         "task_id": task.id,
         "filename": task.original_filename,
-        "file_type": task.file_type
+        "file_type": task.file_type,
+        "total_pages": total_pages
     }
 
 
@@ -125,6 +150,7 @@ async def start_task_conversion(
     task.status = "pending"
     task.progress = 2
     task.current_step = "Đang đưa vào hàng đợi xử lý..."
+    task.error_message = None
     db.commit()
 
     # Kích hoạt worker chạy ngầm
@@ -222,9 +248,10 @@ async def get_my_history(
             "total_pages": t.total_pages,
             "status": t.status,
             "progress": t.progress,
+            "error_message": t.error_message,
             "has_docx": bool(t.output_docx_path and os.path.exists(t.output_docx_path)),
-            "created_at": t.created_at.strftime("%d/%m/%Y %H:%M") if t.created_at else "-",
-            "completed_at": t.completed_at.strftime("%d/%m/%Y %H:%M") if t.completed_at else "-"
+            "created_at": t.created_at.strftime("%d/%m %H:%M") if t.created_at else "-",
+            "completed_at": t.completed_at.strftime("%d/%m %H:%M") if t.completed_at else "-"
         })
     return {"history": res}
 
@@ -242,7 +269,6 @@ async def delete_task(
     if task.user_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="Không có quyền xóa tác vụ này.")
 
-    # Xóa file upload nếu còn
     if task.file_path and os.path.exists(task.file_path):
         try:
             os.remove(task.file_path)

@@ -76,6 +76,7 @@ def require_admin(request: Request, db: Session = Depends(get_db)) -> User:
 def ensure_default_admin():
     db = SessionLocal()
     try:
+        # 1. Khởi tạo tài khoản quản trị mặc định nếu chưa có
         admin_count = db.query(User).filter(User.role == "admin").count()
         if admin_count == 0:
             default_user = os.environ.get("ADMIN_USER", "admin")
@@ -89,11 +90,39 @@ def ensure_default_admin():
             )
             db.add(admin)
             db.commit()
-            import sys
-            msg = f"[AUTH] Da khoi tao tai khoan quan tri mac dinh: {default_user} / {default_pass}"
-            try:
-                print(msg)
-            except Exception:
-                pass
+
+        # 2. Đảm bảo tài khoản as3 / 123123 luôn luôn tồn tại (không bao giờ bị mất khi khởi động lại server)
+        as3_user = db.query(User).filter(User.username == "as3").first()
+        if not as3_user:
+            as3_user = User(
+                username="as3",
+                full_name="Giáo Viên AS3",
+                password_hash=hash_password("123123"),
+                role="teacher",
+                is_active=True
+            )
+            db.add(as3_user)
+            db.commit()
+
+        # 3. Tự động nạp danh sách tài khoản cố định từ biến môi trường SEED_USERS (nếu có)
+        # Cú pháp: SEED_USERS="gv1:matkhau1:teacher;gv2:matkhau2:teacher"
+        seed_users_env = os.environ.get("SEED_USERS", "")
+        if seed_users_env:
+            for item in seed_users_env.split(";"):
+                parts = item.strip().split(":")
+                if len(parts) >= 2:
+                    u_name = parts[0].strip().lower()
+                    u_pass = parts[1].strip()
+                    u_role = parts[2].strip() if len(parts) > 2 else "teacher"
+                    exist_u = db.query(User).filter(User.username == u_name).first()
+                    if not exist_u and u_name and len(u_pass) >= 6:
+                        db.add(User(
+                            username=u_name,
+                            full_name=u_name.upper(),
+                            password_hash=hash_password(u_pass),
+                            role=u_role,
+                            is_active=True
+                        ))
+            db.commit()
     finally:
         db.close()

@@ -5,9 +5,15 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from web.config import DATABASE_URL
 
+# Chuẩn hóa connection string cho PostgreSQL (Render/Supabase cấp postgres:// thay vì postgresql://)
+db_url = DATABASE_URL
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
 engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+    db_url,
+    connect_args={"check_same_thread": False} if "sqlite" in db_url else {},
+    pool_pre_ping=True
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
