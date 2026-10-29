@@ -145,8 +145,6 @@ class OMMLConverter:
         latex_clean = latex_clean.replace(r'\parallel', r'\Vert')
         # 4. replace common spaces
         latex_clean = latex_clean.replace(r'\;', ' ').replace(r'\,', ' ').replace(r'\ ', ' ')
-        # 5. replace \cdot
-        latex_clean = latex_clean.replace(r'\cdot', r'*')
 
         try:
             mathml = latex2mathml.converter.convert(latex_clean)
@@ -156,5 +154,6 @@ class OMMLConverter:
             root = omml_tree.getroot()
             cls._enhance_omml_accents(root)
             return root
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Không thể chuyển đổi công thức sang OMML ({latex_str}): {e}")
             return None

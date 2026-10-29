@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 import docx
 from docx.shared import Inches, Pt, RGBColor
@@ -10,6 +11,8 @@ from docx.oxml.ns import nsdecls, qn
 
 from core.omml_converter import OMMLConverter
 from core.latex_formatter import LatexFormatter
+
+logger = logging.getLogger("WordBuilder")
 
 QUESTION_START_RE = re.compile(
     r'^(?:\[(?:NB|TH|VD|VDC)\]\s*)?(?:\*\*)?(?:(?:Câu|Bài|Ví dụ|Khẳng định|Mệnh đề)\s+\d+|[0-9]{1,3}[\.\:])[\.\:\s\)]',
@@ -477,13 +480,30 @@ class WordBuilder:
         return options, next_idx
 
     def _calc_option_length(self, opt_text: str) -> int:
-        """Estimates readable character length of an option by stripping LaTeX and markup."""
-        t = re.sub(r'^\*\*[A-D]\.\*\*\s*', '', opt_text)
-        t = t.replace('$', '')
-        t = re.sub(r'\\[a-zA-Z]+', '', t)
-        t = re.sub(r'[\{\}\^_\\]', '', t)
-        t = re.sub(r'\s+', ' ', t).strip()
-        return len(t)
+        """
+        Ước lượng độ dài trực quan (visual footprint) của phương án trắc nghiệm.
+        Tính thêm trọng số kích thước cho công thức toán học OMML (phân số, căn thức)
+        để xếp bảng 4 cột / 2 cột / 1 cột chính xác, tránh tràn lề hoặc co rúm chữ.
+        """
+        # Bỏ nhãn A., B., C., D. (kể cả có gạch chân <u> hoặc bold **)
+        t = re.sub(r'^\*\*(?:<u>)?[A-D][\.\:\)](?:<\/u>)?\*\*\s*', '', opt_text)
+        
+        # Tính trọng số cho các công thức toán $...$
+        math_matches = re.findall(r'\$(.*?)\$', t)
+        math_weight = 0
+        for m in math_matches:
+            frac_count = len(re.findall(r'\\d?frac', m))
+            sqrt_count = len(re.findall(r'\\sqrt', m))
+            # Mỗi phân số, căn thức chiếm diện tích lớn hơn ký tự thông thường
+            math_weight += int(len(m) * 1.2) + (frac_count * 5) + (sqrt_count * 4)
+
+        # Phần văn bản thuần
+        plain_t = re.sub(r'\$.*?\$', '', t)
+        plain_t = re.sub(r'<[^>]+>', '', plain_t)
+        plain_t = re.sub(r'[\{\}\^_\\]', '', plain_t)
+        plain_t = re.sub(r'\s+', ' ', plain_t).strip()
+        
+        return len(plain_t) + math_weight
 
     def _is_question_start(self, line: str) -> bool:
         """Determines if a line looks like the start of an exam question or problem."""
@@ -639,8 +659,8 @@ class WordBuilder:
                 run_img.add_picture(img_path, height=pic_h)
             else:
                 run_img.add_picture(img_path, width=pic_w)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Lỗi chèn ảnh cạnh câu hỏi ({img_path}): {e}")
 
         used_image_ids.add(fig_id)
         return k
@@ -939,8 +959,8 @@ class WordBuilder:
             run = p.add_run()
             pic_w = Inches(2.5) if self.compact_paper_saver else Inches(3.0)
             run.add_picture(image_path, width=pic_w)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Lỗi chèn ảnh ({image_path}): {e}")
 
     def save(self, output_path: str):
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)

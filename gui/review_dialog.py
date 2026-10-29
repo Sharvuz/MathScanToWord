@@ -1,15 +1,47 @@
 import os
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Callable
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QScrollArea,
-    QWidget, QCheckBox, QFileDialog, QMessageBox, QFrame, QInputDialog
+    QWidget, QCheckBox, QFileDialog, QMessageBox, QFrame, QInputDialog,
+    QProgressDialog
 )
 from PyQt6.QtGui import QPixmap
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PIL import Image
 
 from core.image_cropper import ImageCropper
 from gui.crop_editor_dialog import CropEditorDialog
+
+class AIRedrawWorker(QThread):
+    finished_signal = pyqtSignal(bool, str, str)
+
+    def __init__(self, image_path: str, output_path: str, api_keys: List[str], model: str, desc: str, ctx: str):
+        super().__init__()
+        self.image_path = image_path
+        self.output_path = output_path
+        self.api_keys = api_keys
+        self.model = model
+        self.desc = desc
+        self.ctx = ctx
+
+    def run(self):
+        try:
+            from core.ai_figure_artist import AIGeometryArtist
+            new_path = AIGeometryArtist.redraw_figure(
+                image_path=self.image_path,
+                output_path=self.output_path,
+                api_keys=self.api_keys,
+                model=self.model,
+                description=self.desc,
+                context_text=self.ctx,
+                timeout_seconds=35
+            )
+            if new_path and os.path.exists(new_path):
+                self.finished_signal.emit(True, new_path, "")
+            else:
+                self.finished_signal.emit(False, "", "AI không thể vẽ lại hình này.")
+        except Exception as e:
+            self.finished_signal.emit(False, "", str(e))
 
 class FigureCard(QFrame):
     def __init__(self, fig_data: Dict[str, Any], page_image_path: str, parent_dialog):
@@ -213,57 +245,77 @@ class FigureCard(QFrame):
 
         self.btn_ai_redraw.setText("⏳ Đang vẽ...")
         self.btn_ai_redraw.setEnabled(False)
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
 
-        try:
-            from core.ai_figure_artist import AIGeometryArtist
-            out_redraw_path = f"{os.path.splitext(crop_path)[0]}_ai_redraw.png"
-            desc = self.fig_data.get("description", "")
-            ctx = self.fig_data.get("context_text", "")
+        out_redraw_path = f"{os.path.splitext(crop_path)[0]}_ai_redraw.png"
+        desc = self.fig_data.get("description", "")
+        ctx = self.fig_data.get("context_text", "")
 
-            new_path = AIGeometryArtist.redraw_figure(
+        def handle_success(new_path: str):
+            if "original_path" not in self.fig_data:
+                self.fig_data["original_path"] = self.fig_data["cropped_path"]
+            self.fig_data["redraw_path"] = new_path
+            self.fig_data["cropped_path"] = new_path
+            self.fig_data["is_blank"] = False
+            self.fig_data["selected"] = True
+            self.checkbox.setChecked(True)
+            self._update_thumbnail()
+            self.btn_toggle_version.setVisible(True)
+            self.btn_toggle_version.setText("🔄 Đổi sang ảnh gốc")
+            self.btn_ai_redraw.setText("✨ Đã vẽ lại")
+            self.btn_ai_redraw.setEnabled(True)
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    "Thành công",
+                    "Đã dùng AI tái tạo lại hình học thẳng góc, chuẩn xác và siêu nét 300 DPI!"
+                )
+
+        def handle_failure(err_msg: str):
+            self.btn_ai_redraw.setText("✨ AI vẽ lại hình")
+            self.btn_ai_redraw.setEnabled(True)
+            if not silent:
+                QMessageBox.warning(
+                    self,
+                    "Không thể vẽ lại",
+                    f"AI không thể vẽ lại hình này (hoặc hình không thuộc dạng hình học): {err_msg}"
+                )
+
+        if silent:
+            # Synchronous execution for batch processing loop
+            try:
+                from core.ai_figure_artist import AIGeometryArtist
+                new_path = AIGeometryArtist.redraw_figure(
+                    image_path=crop_path,
+                    output_path=out_redraw_path,
+                    api_keys=api_keys,
+                    model=model,
+                    description=desc,
+                    context_text=ctx,
+                    timeout_seconds=30
+                )
+                if new_path and os.path.exists(new_path):
+                    handle_success(new_path)
+                else:
+                    handle_failure("")
+            except Exception as e:
+                handle_failure(str(e))
+        else:
+            # Asynchronous background thread to keep GUI 100% responsive
+            self.redraw_worker = AIRedrawWorker(
                 image_path=crop_path,
                 output_path=out_redraw_path,
                 api_keys=api_keys,
                 model=model,
-                description=desc,
-                context_text=ctx,
-                timeout_seconds=30
+                desc=desc,
+                ctx=ctx
             )
-
-            if new_path and os.path.exists(new_path):
-                if "original_path" not in self.fig_data:
-                    self.fig_data["original_path"] = self.fig_data["cropped_path"]
-                self.fig_data["redraw_path"] = new_path
-                self.fig_data["cropped_path"] = new_path
-                self.fig_data["is_blank"] = False
-                self.fig_data["selected"] = True
-                self.checkbox.setChecked(True)
-                self._update_thumbnail()
-                self.btn_toggle_version.setVisible(True)
-                self.btn_toggle_version.setText("🔄 Đổi sang ảnh gốc")
-                self.btn_ai_redraw.setText("✨ Đã vẽ lại")
-                if not silent:
-                    QMessageBox.information(
-                        self,
-                        "Thành công",
-                        "Đã dùng AI tái tạo lại hình học thẳng góc, chuẩn xác và siêu nét 300 DPI!"
-                    )
-            else:
-                if not silent:
-                    QMessageBox.warning(
-                        self,
-                        "Không thể vẽ lại",
-                        "AI không thể vẽ lại hình này (hoặc hình không thuộc dạng hình học). Đã giữ nguyên ảnh gốc."
-                    )
-                self.btn_ai_redraw.setText("✨ AI vẽ lại hình")
-        except Exception as e:
-            if not silent:
-                QMessageBox.critical(self, "Lỗi", f"Có lỗi xảy ra khi vẽ lại: {str(e)}")
-            self.btn_ai_redraw.setText("✨ AI vẽ lại hình")
-        finally:
-            self.btn_ai_redraw.setEnabled(True)
+            def on_finished(ok: bool, path: str, err: str):
+                if ok:
+                    handle_success(path)
+                else:
+                    handle_failure(err)
+            self.redraw_worker.finished_signal.connect(on_finished)
+            self.redraw_worker.start()
 
     def _update_thumbnail(self):
         crop_path = self.fig_data["cropped_path"]
@@ -527,14 +579,27 @@ class ReviewDialog(QDialog):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        progress = QProgressDialog("Đang dùng AI vẽ lại toàn bộ hình học...", "Hủy", 0, len(targets), self)
+        progress.setWindowTitle("Tiến trình vẽ lại toàn bộ")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+
         success_count = 0
         from PyQt6.QtWidgets import QApplication
-        for c in targets:
+        for i, c in enumerate(targets):
+            if progress.wasCanceled():
+                break
+            disp_num = c.fig_data.get("display_num", i + 1)
+            progress.setLabelText(f"Đang vẽ lại Hình {disp_num} ({i + 1}/{len(targets)})...")
+            progress.setValue(i)
+            QApplication.processEvents()
+
             c._ai_redraw_figure(silent=True)
             if c.fig_data.get("redraw_path"):
                 success_count += 1
-            QApplication.processEvents()
+            progress.setValue(i + 1)
 
+        progress.close()
         QMessageBox.information(self, "Hoàn tất", f"Đã hoàn thành vẽ lại {success_count}/{len(targets)} hình!")
 
     def _render_cards(self):

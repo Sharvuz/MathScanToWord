@@ -101,7 +101,7 @@ class LatexFormatter:
                 formula = cls._fix_vietnamese_in_formula(formula)
             if fix_decimals:
                 formula = cls._fix_decimal_commas(formula)
-            formula = cls._standardize_math_symbols(formula)
+            formula = cls._standardize_math_symbols(formula, is_block=True)
             return f"$${formula}$$"
 
         # Process inline math ($ ... $) - Strictly single line!
@@ -117,7 +117,7 @@ class LatexFormatter:
                 formula = cls._fix_vietnamese_in_formula(formula)
             if fix_decimals:
                 formula = cls._fix_decimal_commas(formula)
-            formula = cls._standardize_math_symbols(formula)
+            formula = cls._standardize_math_symbols(formula, is_block=False)
             return f"${formula}$"
 
         text = re.sub(r'\$\$([^\$]+?)\$\$', replace_block_math, text, flags=re.DOTALL)
@@ -170,14 +170,14 @@ class LatexFormatter:
         return re.sub(r'(\d+),(\d+)', r'\1{,}\2', formula)
 
     @classmethod
-    def _standardize_math_symbols(cls, formula: str) -> str:
+    def _standardize_math_symbols(cls, formula: str, is_block: bool = False) -> str:
         r"""
         Deep Math Sanitizer:
         - Chuẩn hóa gốc tọa độ O vs số 0 (0xyz -> Oxyz, 0xy -> Oxy, trục 0x -> trục Ox)
         - Chuẩn hóa ký hiệu góc (\widehat{ABC}) và độ (60^\circ)
         - Chuẩn hóa hệ phương trình & hệ ngoặc vuông tuyển nghiệm
-        - Chuẩn hóa ký hiệu xấp xỉ (\approx), tương đương (\Leftrightarrow), suy ra (\Rightarrow)
-        - Chuẩn hóa tam giác (\Delta), vector (\overrightarrow{AB}) và phân số (\dfrac)
+        - Giữ nguyên \sim cho hình học đồng dạng, chuẩn hóa \approx
+        - Chuẩn hóa tam giác (\Delta), vector (\overrightarrow{AB}) và phân số (\dfrac trong block)
         """
         # 1. Gốc tọa độ O vs số 0
         formula = re.sub(r'\b0xyz\b', 'Oxyz', formula)
@@ -200,8 +200,7 @@ class LatexFormatter:
         formula = re.sub(r'\\left\[\s*\\begin\{cases\}', r'\\left[\\begin{array}{l}', formula)
         formula = re.sub(r'\\end\{cases\}\s*\\right\.?', r'\\end{array}\\right.', formula)
 
-        # 4. Xấp xỉ, suy ra, tương đương, bất đẳng thức
-        formula = re.sub(r'\\(sim|approx)\b', r'\\approx', formula)
+        # 4. Xấp xỉ, suy ra, tương đương, bất đẳng thức (giữ nguyên \sim cho tam giác đồng dạng)
         formula = re.sub(r'(?<=\s)~\s*(?=[0-9\\+-])', r'\\approx ', formula)
         formula = re.sub(r'(?:<=>|\\iff\b)', r'\\Leftrightarrow', formula)
         formula = re.sub(r'(?:=>|\\implies\b)', r'\\Rightarrow', formula)
@@ -211,7 +210,8 @@ class LatexFormatter:
         # 5. Tam giác, vector và phân số
         formula = re.sub(r'\\(triangle|bigtriangleup)\b', r'\\Delta', formula)
         formula = re.sub(r'\\vec\{([A-Za-z]{2,})\}', r'\\overrightarrow{\1}', formula)
-        formula = re.sub(r'\\frac(?=\{)', r'\\dfrac', formula)
+        if is_block:
+            formula = re.sub(r'\\frac(?=\{)', r'\\dfrac', formula)
 
         # 6. Chuẩn hóa đơn vị đo lường và loại bỏ triệt để ext dính vào đơn vị (extm -> \text{ m})
         formula = re.sub(r'\\ext\{([^}]+)\}', r'\\text{\1}', formula)

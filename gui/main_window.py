@@ -465,8 +465,14 @@ class MainWindow(QMainWindow):
             self.config = {}
 
     def _save_config(self):
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(self.config, f, ensure_ascii=False, indent=2)
+        try:
+            temp_file = f"{CONFIG_FILE}.tmp"
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+            if os.path.exists(temp_file):
+                os.replace(temp_file, CONFIG_FILE)
+        except Exception as e:
+            print(f"[Warning] Không thể lưu file cấu hình: {e}")
 
     def _init_ui(self):
         central_widget = QWidget()
