@@ -30,8 +30,9 @@ async def handle_login(
     password: str = Form(...),
     db: Session = Depends(get_db)
 ):
-    username = username.strip()
-    user = db.query(User).filter(User.username == username).first()
+    from sqlalchemy import func
+    clean_username = username.strip().lower()
+    user = db.query(User).filter(func.lower(User.username) == clean_username).first()
 
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
