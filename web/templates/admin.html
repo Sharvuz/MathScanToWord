@@ -138,8 +138,8 @@
         <div>
           <label class="block text-xs font-bold text-slate-700 uppercase mb-2">Mô hình AI (Model)</label>
           <select id="setting-model" class="w-full p-3 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 outline-none focus:border-sky-500">
-            <option value="gemini-2.5-flash" {% if settings.model == 'gemini-2.5-flash' %}selected{% endif %}>Gemini 2.5 Flash (Khuyên dùng - Nhanh & Chuẩn)</option>
-            <option value="gemini-3.5-flash-lite" {% if settings.model == 'gemini-3.5-flash-lite' %}selected{% endif %}>Gemini 3.5 Flash Lite (Siêu tốc)</option>
+            <option value="gemini-3.5-flash-lite" {% if settings.model == 'gemini-3.5-flash-lite' or settings.model == 'gemini-2.5-flash' %}selected{% endif %}>Gemini 3.5 Flash Lite (Khuyên dùng - Siêu tốc & Chuẩn)</option>
+            <option value="gemini-2.0-flash" {% if settings.model == 'gemini-2.0-flash' %}selected{% endif %}>Gemini 2.0 Flash (Độ chính xác cao)</option>
             <option value="gemini-1.5-pro" {% if settings.model == 'gemini-1.5-pro' %}selected{% endif %}>Gemini 1.5 Pro (Độ sâu học thuật cao nhất)</option>
           </select>
         </div>

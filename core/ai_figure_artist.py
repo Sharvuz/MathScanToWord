@@ -112,7 +112,7 @@ class AIGeometryArtist:
         image_path: str,
         output_path: str,
         api_keys: List[str],
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3.5-flash-lite",
         description: str = "",
         context_text: str = "",
         timeout_seconds: int = 35

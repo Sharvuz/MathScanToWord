@@ -24,7 +24,7 @@ def get_system_settings() -> dict:
     """Load settings from DB or fall back to config.json or environment."""
     settings = {
         "api_keys": [],
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.5-flash-lite",
         "slow_threshold_seconds": 30,
         "concurrent_workers": 3,
         "options": {
@@ -103,7 +103,10 @@ def get_system_settings() -> dict:
 
         db_model = db.query(SystemSetting).filter(SystemSetting.key == "model").first()
         if db_model and db_model.value:
-            settings["model"] = db_model.value
+            m = db_model.value.strip()
+            if m in ("gemini-2.5-flash", "gemini-1.5-flash"):
+                m = "gemini-3.5-flash-lite"
+            settings["model"] = m
 
         db_workers = db.query(SystemSetting).filter(SystemSetting.key == "concurrent_workers").first()
         if db_workers and db_workers.value:
@@ -120,41 +123,73 @@ def get_system_settings() -> dict:
 class TaskWorker:
     def __init__(self, task_id: str):
         self.task_id = task_id
-        self.db = SessionLocal()
+        self.db_lock = threading.Lock()
         self.is_running = True
         ACTIVE_WORKERS[task_id] = True
 
-    def emit_log(self, task: Task, message: str, level: str = "info"):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = {
-            "time": timestamp,
-            "message": message,
-            "level": level
-        }
-        logs = task.get_logs()
-        logs.append(log_entry)
-        task.set_logs(logs[-500:])
-        task.current_step = message[:250]
-        try:
-            self.db.commit()
-        except Exception:
-            self.db.rollback()
+    def emit_log(self, message: str, level: str = "info", progress: Optional[int] = None, processed_pages: Optional[int] = None):
+        with self.db_lock:
+            db = SessionLocal()
+            try:
+                task = db.query(Task).filter(Task.id == self.task_id).first()
+                if task:
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    log_entry = {
+                        "time": timestamp,
+                        "message": message,
+                        "level": level
+                    }
+                    logs = task.get_logs()
+                    logs.append(log_entry)
+                    task.set_logs(logs[-500:])
+                    task.current_step = message[:250]
+                    if progress is not None:
+                        task.progress = progress
+                    if processed_pages is not None:
+                        task.processed_pages = processed_pages
+                    db.commit()
+            except Exception as e:
+                logger.warning(f"Lỗi emit_log DB: {e}")
+                db.rollback()
+            finally:
+                db.close()
+
+    def update_task_state(self, **kwargs):
+        with self.db_lock:
+            db = SessionLocal()
+            try:
+                task = db.query(Task).filter(Task.id == self.task_id).first()
+                if task:
+                    for k, v in kwargs.items():
+                        setattr(task, k, v)
+                    db.commit()
+            except Exception as e:
+                logger.warning(f"Lỗi update_task_state DB: {e}")
+                db.rollback()
+            finally:
+                db.close()
 
     def run(self):
         try:
-            task = self.db.query(Task).filter(Task.id == self.task_id).first()
-            if not task:
-                logger.error(f"Task {self.task_id} không tồn tại trong DB.")
-                return
+            db = SessionLocal()
+            try:
+                task = db.query(Task).filter(Task.id == self.task_id).first()
+                if not task:
+                    logger.error(f"Task {self.task_id} không tồn tại trong DB.")
+                    return
+                original_filename = task.original_filename
+                file_path = task.file_path
+                file_type = task.file_type
+                task_opts = task.get_options()
+            finally:
+                db.close()
 
-            task.status = "processing"
-            task.progress = 5
-            self.emit_log(task, f"🚀 Bắt đầu tiếp nhận file: {task.original_filename}")
+            self.update_task_state(status="processing", progress=5)
+            self.emit_log(f"🚀 Bắt đầu tiếp nhận file: {original_filename}")
 
             sys_settings = get_system_settings()
-            opts = task.get_options()
             merged_opts = dict(sys_settings.get("options", {}))
-            merged_opts.update(opts)
+            merged_opts.update(task_opts)
 
             api_keys = sys_settings.get("api_keys", [])
             if not api_keys:
@@ -162,7 +197,9 @@ class TaskWorker:
                     "Hệ thống chưa được cấu hình Google Gemini API Key. Quản trị viên vui lòng vào mục 'Quản Trị Trung Tâm' -> 'Cấu Hình API Key & Model' để nhập key."
                 )
 
-            model = sys_settings.get("model", "gemini-2.5-flash")
+            model = sys_settings.get("model", "gemini-3.5-flash-lite")
+            if model in ("gemini-2.5-flash", "gemini-1.5-flash"):
+                model = "gemini-3.5-flash-lite"
             threshold = float(sys_settings.get("slow_threshold_seconds", 30))
 
             from core.gemini_engine import GeminiEngine
@@ -181,11 +218,10 @@ class TaskWorker:
                 api_keys=api_keys,
                 model=model,
                 slow_threshold_seconds=threshold,
-                log_callback=lambda msg, lvl: self.emit_log(task, msg, lvl)
+                log_callback=lambda msg, lvl: self.emit_log(msg, lvl)
             )
 
-            file_path = task.file_path
-            is_pdf = task.file_type == "pdf" or file_path.lower().endswith(".pdf")
+            is_pdf = file_type == "pdf" or file_path.lower().endswith(".pdf")
 
             # 1. Xác định số trang & dải trang cần xử lý (Page Range Selector)
             pages_to_process = []
@@ -199,7 +235,8 @@ class TaskWorker:
                             total_p = len(doc)
                     except Exception:
                         total_p = 1
-                task.total_pages = total_p
+
+                self.update_task_state(total_pages=total_p)
 
                 page_mode = merged_opts.get("page_mode", "all")
                 if page_mode == "custom":
@@ -221,20 +258,18 @@ class TaskWorker:
                 if not pages_to_process:
                     pages_to_process = list(range(1, total_p + 1))
             else:
-                task.total_pages = 1
+                total_p = 1
+                self.update_task_state(total_pages=1)
                 pages_to_process = [1]
 
-            self.db.commit()
-
             range_summary = f"{pages_to_process[0]}-{pages_to_process[-1]}" if len(pages_to_process) > 1 else f"{pages_to_process[0]}"
-            self.emit_log(task, f"📑 Đã chọn xử lý {len(pages_to_process)} trang (Dải trang: {range_summary} trên tổng số {task.total_pages} trang).")
+            self.emit_log(f"📑 Đã chọn xử lý {len(pages_to_process)} trang (Dải trang: {range_summary} trên tổng số {total_p} trang).")
 
             # 2. Render ảnh các trang
             for p_num in pages_to_process:
                 if not ACTIVE_WORKERS.get(self.task_id, True):
-                    self.emit_log(task, "Tiến trình đã bị dừng bởi người dùng.", "warning")
-                    task.status = "cancelled"
-                    self.db.commit()
+                    self.emit_log("Tiến trình đã bị dừng bởi người dùng.", "warning")
+                    self.update_task_state(status="cancelled")
                     return
 
                 p_img_path = os.path.join(doc_dir, f"page_{p_num:04d}.png")
@@ -255,7 +290,7 @@ class TaskWorker:
             # 3. Xử lý các trang (OCR + Gemini Vision + AI Figure + 2-Column Split)
             configured_workers = int(sys_settings.get("concurrent_workers", 3))
             num_workers = max(1, min(len(api_keys), configured_workers, len(pages_to_process)))
-            self.emit_log(task, f"⚡ Chạy bóc tách song song {num_workers} luồng với Gemini Vision ({model})...")
+            self.emit_log(f"⚡ Chạy bóc tách song song {num_workers} luồng với Gemini Vision ({model})...")
 
             completed_count = 0
             page_results = {}
@@ -268,7 +303,7 @@ class TaskWorker:
                 page_img_path = os.path.join(doc_dir, f"page_{p_num:04d}.png")
                 cached = cache_mgr.get_page_result(doc_dir, p_num)
                 if cached:
-                    self.emit_log(task, f"[Trang {p_num}] Lấy kết quả từ bộ nhớ đệm (cache)...")
+                    self.emit_log(f"[Trang {p_num}] Lấy kết quả từ bộ nhớ đệm (cache)...")
                     p_text = cached.get("markdown", "")
                     p_figs = cached.get("figures", [])
                 else:
@@ -282,7 +317,7 @@ class TaskWorker:
                         is_2col, split_x = ImagePreprocessor.detect_two_column_layout(cv_page)
 
                     if is_2col and split_x:
-                        self.emit_log(task, f"[Trang {p_num}] 📖 Phát hiện bố cục 2 cột (vách ngăn x={split_x}). Bóc tách Nửa trái -> Nửa phải...")
+                        self.emit_log(f"[Trang {p_num}] 📖 Phát hiện bố cục 2 cột (vách ngăn x={split_x}). Bóc tách Nửa trái -> Nửa phải...")
                         col_l, col_r, split_x = ImagePreprocessor.split_two_columns(page_img, split_x)
                         resp_l = engine.process_page_image(col_l, p_num, preferred_key_idx=worker_idx)
                         resp_r = engine.process_page_image(col_r, p_num, preferred_key_idx=worker_idx)
@@ -346,7 +381,7 @@ class TaskWorker:
                                 desc = fig.get("description", "")
                                 from core.ai_figure_artist import AIGeometryArtist
                                 if AIGeometryArtist.is_likely_geometry(desc, context_text=p_text):
-                                    self.emit_log(task, f"[Trang {p_num}] 🎨 AI đang vẽ lại hình [{fig_id}] vector chuẩn Bộ GD&ĐT...")
+                                    self.emit_log(f"[Trang {p_num}] 🎨 AI đang vẽ lại hình [{fig_id}] vector chuẩn Bộ GD&ĐT...")
                                     target_redraw = os.path.join(doc_dir, f"page_{p_num:04d}_{fig_id}_ai_redraw.png")
                                     rd_res = AIGeometryArtist.redraw_figure(
                                         image_path=crop_path,
@@ -359,7 +394,7 @@ class TaskWorker:
                                     )
                                     if rd_res and os.path.exists(rd_res):
                                         crop_path = rd_res
-                                        self.emit_log(task, f"[Trang {p_num}] ✅ Đã vẽ lại hình [{fig_id}] thành công (vector 300 DPI)!", "success")
+                                        self.emit_log(f"[Trang {p_num}] ✅ Đã vẽ lại hình [{fig_id}] thành công (vector 300 DPI)!", "success")
 
                             if not is_blank:
                                 p_figs.append({
@@ -389,19 +424,19 @@ class TaskWorker:
                         with lock:
                             page_results[p_num] = res
                             completed_count += 1
-                            task.processed_pages = completed_count
-                            task.progress = int(10 + (completed_count / len(pages_to_process)) * 75)
-                            self.emit_log(task, f"✓ Hoàn thành trang {p_num} ({completed_count}/{len(pages_to_process)})")
+                            prog = int(10 + (completed_count / len(pages_to_process)) * 75)
+                            self.emit_log(
+                                f"✓ Hoàn thành trang {p_num} ({completed_count}/{len(pages_to_process)})",
+                                progress=prog,
+                                processed_pages=completed_count
+                            )
 
             if not ACTIVE_WORKERS.get(self.task_id, True):
-                task.status = "cancelled"
-                self.db.commit()
+                self.update_task_state(status="cancelled")
                 return
 
             # 4. Tạo tài liệu Word (.docx)
-            self.emit_log(task, "📄 Đang tổng hợp nội dung và tạo file Word (.docx) chuẩn OMML...")
-            task.progress = 90
-            self.db.commit()
+            self.emit_log("📄 Đang tổng hợp nội dung và tạo file Word (.docx) chuẩn OMML...", progress=90)
 
             compact_saver = merged_opts.get("compact_paper_saver", True)
             builder = WordBuilder(
@@ -427,7 +462,7 @@ class TaskWorker:
                 )
 
             # Lưu file docx
-            base_filename = os.path.splitext(task.original_filename)[0]
+            base_filename = os.path.splitext(original_filename)[0]
             clean_filename = "".join([c if c.isalnum() or c in ("-", "_") else "_" for c in base_filename])
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = f"{clean_filename}_{timestamp_str}.docx"
@@ -435,27 +470,23 @@ class TaskWorker:
 
             builder.save(output_docx_path)
 
-            task.output_docx_path = output_docx_path
-            task.status = "completed"
-            task.progress = 100
-            task.completed_at = datetime.utcnow()
-            self.emit_log(task, f"🎉 Chuyển đổi thành công {len(pages_to_process)} trang! File Word đã sẵn sàng tải về.", "success")
-            self.db.commit()
+            self.update_task_state(
+                output_docx_path=output_docx_path,
+                status="completed",
+                progress=100,
+                completed_at=datetime.utcnow()
+            )
+            self.emit_log(f"🎉 Chuyển đổi thành công {len(pages_to_process)} trang! File Word đã sẵn sàng tải về.", "success")
 
         except Exception as e:
             logger.exception(f"Lỗi xử lý Task {self.task_id}: {e}")
             try:
-                task = self.db.query(Task).filter(Task.id == self.task_id).first()
-                if task:
-                    task.status = "failed"
-                    task.error_message = str(e)
-                    self.emit_log(task, f"❌ Lỗi: {str(e)}", "error")
-                    self.db.commit()
+                self.update_task_state(status="failed", error_message=str(e))
+                self.emit_log(f"❌ Lỗi: {str(e)}", "error")
             except Exception:
                 pass
         finally:
             ACTIVE_WORKERS.pop(self.task_id, None)
-            self.db.close()
 
 
 def submit_task(task_id: str):

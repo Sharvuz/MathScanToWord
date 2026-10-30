@@ -66,7 +66,7 @@ class GeminiEngine:
     def __init__(
         self,
         api_keys: List[str],
-        model: str = "gemini-flash-latest",
+        model: str = "gemini-3.5-flash-lite",
         slow_threshold_seconds: float = 15.0,
         log_callback: Optional[Callable[[str, str], None]] = None
     ):
@@ -257,7 +257,13 @@ class GeminiEngine:
                     self.log(f"[Trang {page_num}] Chuyển sang API {local_key_idx + 1}, tạm dừng {wait_time:.1f}s để hồi hạn mức...", "info")
                     time.sleep(wait_time)
                 else:
-                    self.log(f"[Trang {page_num}] API {key_num} báo lỗi HTTP {response.status_code}: {response.text[:120]}", "error")
+                    err_text = response.text[:150]
+                    self.log(f"[Trang {page_num}] API {key_num} báo lỗi HTTP {response.status_code}: {err_text}", "error")
+                    # Tự động fallback sang gemini-3.5-flash-lite nếu model bị 404
+                    if response.status_code == 404 and ("not found" in err_text.lower() or "no longer available" in err_text.lower()):
+                        fallback_model = "gemini-3.5-flash-lite" if self.model != "gemini-3.5-flash-lite" else "gemini-flash-lite-latest"
+                        self.log(f"[Trang {page_num}] 🔄 Model '{self.model}' không còn khả dụng, tự động chuyển sang '{fallback_model}'...", "warning")
+                        self.model = fallback_model
                     local_key_idx = (local_key_idx + 1) % len(self.api_keys)
                     time.sleep(2)
 
