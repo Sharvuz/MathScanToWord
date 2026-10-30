@@ -42,7 +42,7 @@ def get_system_settings() -> dict:
         }
     }
 
-    # Fallback to config.json
+    # 1. Fallback to config.json
     config_file = os.path.join(BASE_DIR, "config.json")
     if os.path.exists(config_file):
         try:
@@ -52,13 +52,44 @@ def get_system_settings() -> dict:
         except Exception as e:
             logger.warning(f"Không thể đọc config.json: {e}")
 
-    # Fallback to Environment Variables
-    if os.environ.get("GEMINI_API_KEYS"):
-        env_keys = [k.strip() for k in os.environ.get("GEMINI_API_KEYS").split(",") if k.strip()]
+    # 2. Fallback to settings.json in DATA_DIR
+    settings_file = os.path.join(DATA_DIR, "settings.json")
+    if os.path.exists(settings_file):
+        try:
+            with open(settings_file, "r", encoding="utf-8") as f:
+                sf = json.load(f)
+                if sf.get("api_keys"):
+                    settings["api_keys"] = sf["api_keys"]
+                if sf.get("model"):
+                    settings["model"] = sf["model"]
+                if sf.get("concurrent_workers"):
+                    settings["concurrent_workers"] = sf["concurrent_workers"]
+        except Exception:
+            pass
+
+    # 3. Fallback to Environment Variables (Render / Cloud permanent storage)
+    env_keys_raw = os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY") or ""
+    if env_keys_raw:
+        cleaned = env_keys_raw.replace("\r\n", "\n").replace("\r", "\n").replace(";", ",")
+        env_keys = []
+        for line in cleaned.split("\n"):
+            for k in line.split(","):
+                cand = k.strip().strip("'\"")
+                if cand and cand not in env_keys:
+                    env_keys.append(cand)
         if env_keys:
             settings["api_keys"] = env_keys
 
-    # Override from Database if present
+    if os.environ.get("GEMINI_MODEL"):
+        settings["model"] = os.environ.get("GEMINI_MODEL").strip()
+
+    if os.environ.get("CONCURRENT_WORKERS"):
+        try:
+            settings["concurrent_workers"] = int(os.environ.get("CONCURRENT_WORKERS"))
+        except Exception:
+            pass
+
+    # 4. Override from Database if present
     db = SessionLocal()
     try:
         db_keys = db.query(SystemSetting).filter(SystemSetting.key == "api_keys").first()

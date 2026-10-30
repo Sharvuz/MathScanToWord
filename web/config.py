@@ -11,6 +11,8 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{os.path.join(DATA_DIR, 'wordscan.db')}")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # Secret key for session signing
 SECRET_KEY_FILE = os.path.join(DATA_DIR, ".secret_key")

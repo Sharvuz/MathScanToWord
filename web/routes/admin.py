@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import datetime
 from typing import List, Optional
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from web.database import get_db, User, Task, SystemSetting
 from web.security import require_admin, hash_password
 from web.task_manager import get_system_settings
+from web.config import BASE_DIR, DATA_DIR
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
@@ -192,6 +194,35 @@ async def update_settings(
         set_db_setting("concurrent_workers", str(data.concurrent_workers))
 
     db.commit()
+
+    # Đồng bộ lưu thêm vào file json trên đĩa để chống mất dữ liệu
+    try:
+        settings_file = os.path.join(DATA_DIR, "settings.json")
+        with open(settings_file, "w", encoding="utf-8") as f:
+            json.dump({
+                "api_keys": clean_keys,
+                "model": data.model or "gemini-2.5-flash",
+                "concurrent_workers": data.concurrent_workers or 3
+            }, f, ensure_ascii=False, indent=2)
+
+        config_path = os.path.join(BASE_DIR, "config.json")
+        cfg = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                cfg = {}
+        cfg["api_keys"] = clean_keys
+        if data.model:
+            cfg["model"] = data.model
+        if data.concurrent_workers:
+            cfg["concurrent_workers"] = data.concurrent_workers
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
     return {"success": True, "message": "Đã lưu cài đặt hệ thống thành công."}
 
 

@@ -115,6 +115,16 @@
         <p class="text-xs text-slate-500 mt-1">
           Nhập các API Key của trung tâm vào đây (mỗi dòng một key). Hệ thống sẽ tự động xoay tua đa luồng (Multi-Key Affinity) khi nhiều giáo viên cùng chuyển đổi, chống lỗi chạm hạn mức (Rate Limit 429).
         </p>
+
+        <div class="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 flex items-start gap-3 mt-3">
+          <span class="text-lg flex-shrink-0">💡</span>
+          <div class="space-y-1">
+            <p class="font-bold text-amber-950">Lưu ý để API Key vĩnh viễn không bao giờ mất trên Cloud / Render:</p>
+            <p class="text-amber-800 leading-relaxed">
+              Nếu bạn đang chạy trên Render (Gói Free), máy chủ sẽ tự động ngủ (spin down) khi không có người dùng sau 15 phút và reset ổ đĩa tạm. Để lưu API Key <strong>vĩnh viễn 100%</strong>, bạn chỉ cần vào Dashboard Render &rarr; mục <strong>Environment</strong> &rarr; thêm biến <strong><code>GEMINI_API_KEYS</code></strong> (dán các API Key vào đó). Khi đó, mỗi lần máy chủ khởi động lại sẽ tự động nhận diện ngay lập tức!
+            </p>
+          </div>
+        </div>
       </div>
 
       <div>
@@ -233,7 +243,29 @@
     activeBtn.classList.add('border-sky-600', 'text-sky-600');
 
     if (tab === 'users') loadUsers();
+    if (tab === 'settings') loadSettings();
     if (tab === 'history') loadGlobalHistory();
+  }
+
+  // Load Settings
+  async function loadSettings() {
+    try {
+      const res = await fetch("/api/admin/settings");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.api_keys) {
+        document.getElementById("setting-api-keys").value = data.api_keys.join("\n");
+        document.getElementById("stat-keys").textContent = data.api_keys.length + " Keys";
+      }
+      if (data.model) {
+        document.getElementById("setting-model").value = data.model;
+      }
+      if (data.concurrent_workers) {
+        document.getElementById("setting-workers").value = data.concurrent_workers;
+      }
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   // Load Users
